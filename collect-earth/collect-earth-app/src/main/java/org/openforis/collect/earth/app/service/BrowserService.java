@@ -1,5 +1,8 @@
 package org.openforis.collect.earth.app.service;
 
+import java.awt.Toolkit;
+import java.awt.datatransfer.Clipboard;
+import java.awt.datatransfer.StringSelection;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
@@ -11,7 +14,6 @@ import java.net.URL;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Observable;
@@ -29,23 +31,22 @@ import javax.net.ssl.X509TrustManager;
 
 import liquibase.util.SystemUtils;
 
+import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.openforis.collect.earth.app.EarthConstants;
 import org.openforis.collect.earth.app.desktop.ServerController;
 import org.openforis.collect.earth.app.service.LocalPropertiesService.EarthProperty;
 import org.openqa.selenium.By;
 import org.openqa.selenium.JavascriptExecutor;
+import org.openqa.selenium.Keys;
 import org.openqa.selenium.WebDriverException;
 import org.openqa.selenium.WebElement;
-import org.openqa.selenium.browserlaunchers.locators.CombinedFirefoxLocator;
 import org.openqa.selenium.chrome.ChromeDriver;
 import org.openqa.selenium.firefox.FirefoxBinary;
 import org.openqa.selenium.firefox.FirefoxDriver;
 import org.openqa.selenium.firefox.FirefoxProfile;
 import org.openqa.selenium.remote.DesiredCapabilities;
-import org.openqa.selenium.remote.RemoteStatus;
 import org.openqa.selenium.remote.RemoteWebDriver;
-import org.openqa.selenium.remote.UnreachableBrowserException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -86,7 +87,6 @@ public class BrowserService implements Observer{
 
 		@Override
 		public X509Certificate[] getAcceptedIssuers() {
-			// TODO Auto-generated method stub
 			return null;
 		}
 
@@ -102,7 +102,7 @@ public class BrowserService implements Observer{
 	private LocalPropertiesService localPropertiesService;
 
 	@Autowired
-	private BingMapService bingMapService;
+	private GeolocalizeMapService geoLocalizeTemplateService;
 
 	private final Vector<RemoteWebDriver> drivers = new Vector<RemoteWebDriver>();
 	private final Logger logger = LoggerFactory.getLogger(BrowserService.class);
@@ -110,9 +110,9 @@ public class BrowserService implements Observer{
 	private static final Configuration cfg = new Configuration();
 	private static Template template;
 
-	private RemoteWebDriver webDriverEE, webDriverBing, webDriverTimelapse;
+	private RemoteWebDriver webDriverEE, webDriverBing, webDriverTimelapse, webDriverGeePlayground;
 
-	private static boolean hasCheckValidity = false;
+	private static boolean geeMethodUpdated = false;
 
 	
 	@Override
@@ -160,7 +160,7 @@ public class BrowserService implements Observer{
 	private String checkIfBrowserIsInstalled(String chosenBrowser) {
 		if( chosenBrowser.equals( EarthConstants.FIREFOX_BROWSER ) ){
 			if( StringUtils.isBlank( localPropertiesService.getValue(EarthProperty.FIREFOX_BINARY_PATH) ) ){
-				CombinedFirefoxLocator firefoxLocator = new CombinedFirefoxLocator();
+				FirefoxLocatorFixed firefoxLocator = new FirefoxLocatorFixed();
 				try {
 					firefoxLocator.findBrowserLocationOrFail();
 				} catch (Exception e) {
@@ -213,7 +213,8 @@ public class BrowserService implements Observer{
 
 	private String getGEEJavascript(String[] latLong) {
 
-		final Map<String, String> data = new HashMap<String, String>();
+		//final Map<String, String> data = new HashMap<String, String>();
+		final Map<String,Object> data = geoLocalizeTemplateService.getPlacemarkData(latLong);
 		data.put("latitude", latLong[0]);
 		data.put("longitude", latLong[1]);
 		data.put(EarthProperty.GEE_FUNCTION_PICK.toString(), localPropertiesService.getValue(EarthProperty.GEE_FUNCTION_PICK));
@@ -313,7 +314,7 @@ public class BrowserService implements Observer{
 	private RemoteWebDriver loadLayers(String[] latLong, RemoteWebDriver driver) throws InterruptedException, BrowserNotFoundException {
 
 		if (driver != null) {
-			if (!isIdOrNamePresent("workspace-el", driver)) {
+/*			if (!isIdOrNamePresent("workspace-el", driver)) {
 				final String[] layers = {
 				// "http://earthengine.google.org/#detail/LANDSAT%2FL7_L1T_ANNUAL_GREENEST_TOA"
 				// "http://earthengine.google.org/#detail/LANDSAT%2FL5_L1T_ANNUAL_GREENEST_TOA",
@@ -325,12 +326,17 @@ public class BrowserService implements Observer{
 						waitFor("workspace-el", driver);
 					}
 				}
+			} */
+			
+			if (!isIdOrNamePresent("workspace-el", driver)) {
+				driver = navigateTo("https://earthengine.google.org/#workspace", driver);
 			}
+			
 			if (waitFor("workspace-el", driver)) {
 				if (driver instanceof JavascriptExecutor) {
 					try {
 						String geeJs = getGEEJavascript(latLong);
-						if (!hasCheckValidity) {
+						if (!isGeeMethodUpdated()) {
 							try {
 								if (!isGEEValidJS(geeJs, driver)) {
 									refreshJSValues(geeJs, driver);
@@ -339,7 +345,7 @@ public class BrowserService implements Observer{
 							} catch (final Exception e) {
 								logger.error("Error checking the validity of the GEE js code", e);
 							} finally {
-								hasCheckValidity = true;
+								setGeeMethodUpdated(true);
 							}
 						}
 						((JavascriptExecutor) driver).executeScript(geeJs);
@@ -361,9 +367,17 @@ public class BrowserService implements Observer{
 		return driver;
 	}
 
+	public static boolean isGeeMethodUpdated() {
+		return geeMethodUpdated;
+	}
+
+	public static void setGeeMethodUpdated(boolean geeMethosUpdated) {
+		BrowserService.geeMethodUpdated = geeMethosUpdated;
+	}
+
 	private void processSeleniumError(final Exception e) {
 		if( e.getCause()!=null && e.getCause().getMessage()!=null && !e.getCause().getMessage().contains("latitude") ){
-			logger.error("Error in the selenium driver", e);
+			logger.warn("Error in the selenium driver", e);
 		}else{
 			logger.info("Error in the selenium driver provoked by known bug", e);
 		}
@@ -377,6 +391,7 @@ public class BrowserService implements Observer{
 	 * Loads the given URL into the browser. If the browser is null then a new browser window is open.
 	 * @param url The URL to load.
 	 * @param driver The browser window to use. If this value is null a new browser window is open.
+	 * @param retry Specify if there should be a second try to open a browser window if the first time fails (useful if the browser could not be found)
 	 * @return THe browser window (firefox or chrome depending on the configuration) used to open the URL.
 	 * @throws BrowserNotFoundException 
 	 */
@@ -391,7 +406,7 @@ public class BrowserService implements Observer{
 			try {
 				driver.navigate().to(url);
 			} catch (final Exception e) {
-				if( retry && ( e.getCause()!=null &&  e.getCause().getMessage()!=null && e.getCause().getMessage().contains("Session not found") || e instanceof UnreachableBrowserException ) ){
+				if( retry && ( e.getCause()!=null &&  e.getCause().getMessage()!=null && e.getCause().getMessage().contains("Session not found") ) ){
 					// Browser closed, restart it!
 					logger.error("Browser was closed, restaring it...", e);
 					driver = initBrowser();
@@ -417,7 +432,7 @@ public class BrowserService implements Observer{
 	/**
 	 * Opens a browser window with the Bing Maps representation of th eplot.
 	 * @param coordinates The center point of the plot.
-	 * @throws BrowserNotFoundException 
+	 * @throws BrowserNotFoundException In case the browser could not be found
 	 * 
 	 */
 	public synchronized void openBingMaps(String coordinates) throws BrowserNotFoundException {
@@ -433,24 +448,108 @@ public class BrowserService implements Observer{
 			final Thread loadBingThread = new Thread() {
 				@Override
 				public void run() {
-
 					try {
-						webDriverBing = navigateTo(bingMapService.getTemporaryUrl(latLong).toString(), driverCopy);
+						webDriverBing = navigateTo(geoLocalizeTemplateService.getTemporaryUrl(latLong, GeolocalizeMapService.FREEMARKER_BING_HTML_TEMPLATE).toString(), driverCopy);
 					} catch (final Exception e) {
 						logger.error("Problems loading Bing", e);
 					}
-
 				};
 			};
-
+			
 			loadBingThread.start();
+			
 		}
 	}
 
 	/**
+	 * Opens a browser window with the Google Earth Engine Playground and runs the freemarker template found in resources/eePlaygroundScript.fmt on the main editor of GEE. 
+	 * @param coordinates The center point of the plot.
+	 * @throws BrowserNotFoundException If the browser cannot be found
+	 * 
+	 */
+	public synchronized void openGeePlayground(String coordinates) throws BrowserNotFoundException {
+
+		if (localPropertiesService.isGeePlaygroundSupported()) {
+
+			if (webDriverGeePlayground == null) {
+				webDriverGeePlayground = initBrowser();
+			}
+
+			final String[] latLong = coordinates.split(",");
+
+			final Thread loadEEThread = new Thread() {
+				@Override
+				public void run() {
+					try {
+						URL fileWithScript = geoLocalizeTemplateService.getTemporaryUrl(latLong, getGeePlaygroundTemplate());
+						
+						if (!isIdOrNamePresent("main", webDriverGeePlayground)) {
+							webDriverGeePlayground = navigateTo( localPropertiesService.getGeePlaygoundUrl(), webDriverGeePlayground);
+						}
+						
+						webDriverGeePlayground.findElementByCssSelector("button.goog-button:nth-child(5)").click();
+						
+						WebElement textArea = webDriverGeePlayground.findElement(By.className("ace_text-input"));
+						
+						Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
+						StringSelection clipboardtext = new StringSelection( FileUtils.readFileToString( new File(fileWithScript.toURI())) );
+						clipboard.setContents(clipboardtext, null);
+						
+						textArea.sendKeys(Keys.chord(Keys.CONTROL,"a"));
+						textArea.sendKeys(Keys.chord(Keys.CONTROL,"v"));
+						
+						//textArea.sendKeys( FileUtils.readFileToString( new File(fileWithScript.toURI())) );
+						//((JavascriptExecutor)webDriverGeePlayground).executeScript("arguments[0].value = arguments[1];", textArea,);
+						Thread.sleep(1000);
+						webDriverGeePlayground.findElementByCssSelector("button.goog-button:nth-child(4)").click();
+						
+					} catch (final Exception e) {
+						logger.error("Error when opening Earth Engine browser window", e);
+					}
+				}
+
+				/**
+				 * Get the GEE Playground script that should be used.
+				 * There is an standard one that resides in resources/eePlaygroundScript.fmt but a project might have its own script.
+				 * 
+				 * @return The generic script in the resources folder or the file called eePlaygroundScript.fmt in hte same folder where the current project file resides
+				 */
+				private String getGeePlaygroundTemplate() {
+					String genericPlaygroundScript = GeolocalizeMapService.FREEMARKER_GEE_PLAYGROUND_TEMPLATE;
+					
+					String projectPlaygroundScript = getProjectGeeScript();
+					if( getProjectGeeScript() != null  ){
+						return projectPlaygroundScript;
+					}
+					
+					return genericPlaygroundScript;
+				};
+			};
+			loadEEThread.start();
+		}
+	}
+	
+	/**
+	 * Find the GEE playground script that should be used for the project that is currently loaded in Collect Earth
+	 * @return The path to the GEE playground generic script or the one that is specified in the project folder if it exists. 
+	 */
+	private String getProjectGeeScript() {
+		// Where the metatadata file (usually placemark.idm.xml ) is located
+		
+		// Is there a "eePlaygroundScript.fmt" file in the same folder than in the metadata file folder?
+		File projectGeePlayground = new File( localPropertiesService.getProjectFolder() + File.separatorChar + GeolocalizeMapService.FREEMARKER_GEE_PLAYGROUND_TEMPLATE);
+		
+		String geePlaygroundFilePath = null;
+		if( projectGeePlayground.exists() ){
+			geePlaygroundFilePath = projectGeePlayground.getAbsolutePath();
+		}
+		return geePlaygroundFilePath;
+	}
+	
+	/**
 	 * Opens a browser window with the Google Earth Engine representation of the plot. The Landsat 8 Annual Greenest pixel TOA for 2013 is loaded automatically. 
 	 * @param coordinates The center point of the plot.
-	 * @throws BrowserNotFoundException 
+	 * @throws BrowserNotFoundException If the browser cannot be found
 	 * 
 	 */
 	public synchronized void openEarthEngine(String coordinates) throws BrowserNotFoundException {
@@ -459,6 +558,7 @@ public class BrowserService implements Observer{
 		if (localPropertiesService.isEarthEngineSupported()) {
 
 			if (webDriverEE == null) {
+				setGeeMethodUpdated(false); // Force the method to find the GEE specific methods again
 				webDriverEE = initBrowser();
 			}
 
@@ -483,7 +583,7 @@ public class BrowserService implements Observer{
 	/**
 	 * Opens a browser window with the Google Earth Engine Timelapse representation of the plot. 
 	 * @param coordinates The center point of the plot.
-	 * @throws BrowserNotFoundException 
+	 * @throws BrowserNotFoundException If the browser cannot be found
 	 * 
 	 */
 	public synchronized void openTimelapse(final String coordinates) throws BrowserNotFoundException {
@@ -594,7 +694,9 @@ public class BrowserService implements Observer{
 		} else {
 			// Try with default Firefox executable
 			try {
-				firefoxBinary = new FirefoxBinary();
+				FirefoxLocatorFixed flf = new FirefoxLocatorFixed();
+				String launcherFilePath = flf.findBrowserLocationFix().launcherFilePath();
+				firefoxBinary = new FirefoxBinary( new File( launcherFilePath ) );
 				driver = new FirefoxDriver(firefoxBinary, ffprofile);
 			} catch (final WebDriverException e) {
 				logger.error("The firefox executable firefox.exe cannot be found, please edit earth.properties and add a line with the property "

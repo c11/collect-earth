@@ -1,7 +1,7 @@
 <project>
     <shortName>CollectEarth</shortName>
     <fullName>Collect Earth</fullName>
-    <version>1.0</version>
+    <version>1.0.1</version>
     <installerFilename>${product_shortname}-${product_version}-${platform_name}-With-Saiku-installer.${platform_exec_suffix}</installerFilename>
     <readmeFile>../collect-earth/collect-earth-app/README.txt</readmeFile>
     <licenseFile>../collect-earth/collect-earth-app/License.txt</licenseFile>
@@ -12,9 +12,10 @@
     <defaultLanguage>auto</defaultLanguage>
     <allowLanguageSelection>1</allowLanguageSelection>
     <languageSelectionStyle>onlyNativeNames</languageSelectionStyle>
+    <createOsxBundleZip>1</createOsxBundleZip>
     <componentList>
         <include>
-            <file>jre_files/java.xml</file>
+            <file>jre_8_files/java.xml</file>
         </include>
         <include>
             <file>CollectEarthMain.xml</file>
@@ -67,8 +68,8 @@
             </postInstallationActionList>
         </component>
     </componentList>
-    <allowedLanguages>en es fr</allowedLanguages>
-    <compressionAlgorithm>lzma</compressionAlgorithm>
+    <allowedLanguages>en es fr pt</allowedLanguages>
+    <compressionAlgorithm>zip</compressionAlgorithm>
     <defaultUnixDirectoryPermissions>777</defaultUnixDirectoryPermissions>
     <defaultUnixFilePermissions>777</defaultUnixFilePermissions>
     <defaultUnixOwner>${system_username}</defaultUnixOwner>

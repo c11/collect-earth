@@ -43,6 +43,7 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Component;
 
 import au.com.bytecode.opencsv.CSVReader;
+import freemarker.template.TemplateException;
 
 @Component
 public class AnalysisSaikuService {
@@ -67,7 +68,9 @@ public class AnalysisSaikuService {
 
 	private static final String ASPECT_ID = "aspect_id";
 	
-	protected static final String PLOT_ID = "_plot_id";
+	private static final String PLOT_ID = "_plot_id";
+	
+	protected static final String PLOT_ID_NEW_NAME = "plot_id_";
 
 	private static final String POSTGRES_RDB_SCHEMA = "rdbcollectsaiku";
 
@@ -76,6 +79,7 @@ public class AnalysisSaikuService {
 	private static final String STOP_SAIKU = "stop-saiku";
 	
 	private static final String COMMAND_SUFFIX_BAT = ".bat";
+	
 	private static final String COMMAND_SUFFIX_SH = ".sh";
 
 	private static final String COLLECT_EARTH_DATABASE_RDB_DB = EarthConstants.COLLECT_EARTH_DATABASE_SQLITE_DB + ServerController.SAIKU_RDB_SUFFIX;
@@ -104,26 +108,22 @@ public class AnalysisSaikuService {
 	private RemoteWebDriver saikuWebDriver;
 
 	private boolean refreshDatabase;
+	
+	private String plotIdName;
 
 	private static final String SQLITE_FREEMARKER_HTML_TEMPLATE = "resources" + File.separator + "collectEarthSqliteDS.fmt";
 	private static final String POSTGRESQL_FREEMARKER_HTML_TEMPLATE = "resources" + File.separator + "collectEarthPostgreSqlDS.fmt";
-
 	private static final String MDX_XML = "collectEarthCubes.xml";
 	private static final String MDX_TEMPLATE = MDX_XML + ".fmt";
-
 	private static final String REGION_AREAS_CSV = "region_areas.csv";
-
-	
-
 	private boolean userCancelledOperation = false;
-
 	private boolean saikuStarted;
 
 	private void assignDimensionValues() {
 		try {
 			final String schemaName = getSchemaPrefix();
 			// Objet[] --> aspect_id, sloped_id, elevation_bucket_id, _plot_id
-			final List<Object[]> sqlUpdateValues = jdbcTemplate.query("SELECT "+PLOT_ID+", elevation, slope, aspect FROM " + schemaName + "plot",
+			final List<Object[]> sqlUpdateValues = jdbcTemplate.query("SELECT "+getPlotIdName()+", elevation, slope, aspect FROM " + schemaName + "plot",
 					new RowMapper<Object[]>() {
 						@Override
 						public Object[] mapRow(ResultSet rs, int rowNum) throws SQLException {
@@ -144,13 +144,13 @@ public class AnalysisSaikuService {
 							updateValues[0] = aspect;
 							updateValues[1] = slope;
 							updateValues[2] = Math.floor((int) rs.getFloat("elevation") / ELEVATION_RANGE) + 1; // 0 meters is bucket 1 ( id);
-							updateValues[3] = rs.getLong(PLOT_ID);
+							updateValues[3] = rs.getLong(getPlotIdName());
 							return updateValues;
 						}
 
 					});
 
-			jdbcTemplate.batchUpdate("UPDATE " + schemaName + "plot SET " + ASPECT_ID +"=?," + SLOPE_ID + "=?,"+ ELEVATION_ID+"=? WHERE "+PLOT_ID+"=?", sqlUpdateValues);
+			jdbcTemplate.batchUpdate("UPDATE " + schemaName + "plot SET " + ASPECT_ID +"=?," + SLOPE_ID + "=?,"+ ELEVATION_ID+"=? WHERE "+getPlotIdName()+"=?", sqlUpdateValues);
 		} catch (DataAccessException e) {
 			logger.error("No DEM information", e);
 		}
@@ -161,7 +161,7 @@ public class AnalysisSaikuService {
 			if (earthSurveyService.getCollectSurvey().getName().toLowerCase().contains("png") ){ 
 				final String schemaName = getSchemaPrefix();
 				// Objet[] --> aspect_id, sloped_id, elevation_bucket_id, _plot_id
-				final List<Object[]> sqlUpdateValues = jdbcTemplate.query("SELECT "+PLOT_ID+", elevation, soil_fundamental, land_use_subcategory, precipitation_ranges FROM " + schemaName + "plot LEFT JOIN " + schemaName + "precipitation_ranges_code where "
+				final List<Object[]> sqlUpdateValues = jdbcTemplate.query("SELECT "+getPlotIdName()+", elevation, soil_fundamental, land_use_subcategory, precipitation_ranges FROM " + schemaName + "plot LEFT JOIN " + schemaName + "precipitation_ranges_code where "
 						+ "plot.annual_precipitation_code_id=precipitation_ranges_code.precipitation_ranges_code_id",
 						new RowMapper<Object[]>() {
 							@Override
@@ -197,20 +197,20 @@ public class AnalysisSaikuService {
 									updateValues[0] = climate_zone;
 									updateValues[1] = soil_type;
 									updateValues[2] = sub_class;
-									updateValues[3] = rs.getLong(PLOT_ID);
+									updateValues[3] = rs.getLong(getPlotIdName());
 								} catch (Exception e) {
 									logger.error("Error while processing the data", e);
 									updateValues[0] = "Unknown";
 									updateValues[1] = "Unknown";
 									updateValues[2] = "Unknown";
-									updateValues[0] = rs.getLong(PLOT_ID);
+									updateValues[0] = rs.getLong(getPlotIdName());
 								}
 								return updateValues;
 							}
 	
 						});
 	
-				jdbcTemplate.batchUpdate("UPDATE " + schemaName + "plot SET " + ALU_CLIMATE_ZONE_CODE +"=?," + ALU_SOIL_TYPE_CODE + "=?,"+ ALU_SUBCLASS_CODE+"=? WHERE "+PLOT_ID+"=?", sqlUpdateValues);
+				jdbcTemplate.batchUpdate("UPDATE " + schemaName + "plot SET " + ALU_CLIMATE_ZONE_CODE +"=?," + ALU_SOIL_TYPE_CODE + "=?,"+ ALU_SUBCLASS_CODE+"=? WHERE "+getPlotIdName()+"=?", sqlUpdateValues);
 			}
 		} catch (Exception e) {
 			logger.error("No PNG ALU information", e);
@@ -221,7 +221,7 @@ public class AnalysisSaikuService {
 		try {
 			final String schemaName = getSchemaPrefix();
 			// Objet[] --> aspect_id, sloped_id, elevation_bucket_id, _plot_id
-			final List<Object[]> sqlUpdateValues = jdbcTemplate.query("SELECT "+PLOT_ID+", land_use_subcategory FROM " + schemaName + "plot",
+			final List<Object[]> sqlUpdateValues = jdbcTemplate.query("SELECT "+getPlotIdName()+", land_use_subcategory FROM " + schemaName + "plot",
 					new RowMapper<Object[]>() {
 						@Override
 						public Object[] mapRow(ResultSet rs, int rowNum) throws SQLException {
@@ -233,13 +233,13 @@ public class AnalysisSaikuService {
 
 
 							updateValues[0] = dynamics;
-							updateValues[1] = rs.getLong(PLOT_ID);
+							updateValues[1] = rs.getLong(getPlotIdName());
 							return updateValues;
 						}
 
 					});
 
-			jdbcTemplate.batchUpdate("UPDATE " + schemaName + "plot SET " + DYNAMICS_ID +"=? WHERE "+PLOT_ID+"=?", sqlUpdateValues);
+			jdbcTemplate.batchUpdate("UPDATE " + schemaName + "plot SET " + DYNAMICS_ID +"=? WHERE "+getPlotIdName()+"=?", sqlUpdateValues);
 		} catch (Exception e) {
 			logger.error("No PNG Alu information available", e);
 		}
@@ -352,10 +352,6 @@ public class AnalysisSaikuService {
 		}
 	}
 
-	private String getIdmFolder() {
-		final File metadataFile = new File(localPropertiesService.getImdFile() );
-		return metadataFile.getParent();
-	}
 
 	private File getRdbFile() {
 		return new File(COLLECT_EARTH_DATABASE_RDB_DB);
@@ -370,6 +366,13 @@ public class AnalysisSaikuService {
 	private String getSaikuConfigurationFilePath() {
 		
 		String configFile = getSaikuFolder() + "/" + "tomcat/webapps/saiku/WEB-INF/classes/saiku-datasources/collectEarthDS";
+		configFile = configFile.replace('/', File.separatorChar);
+		return configFile;
+	}
+	
+	private String getSaikuThreeConfigurationFilePath() {
+		
+		String configFile = getSaikuFolder() + "/" + "tomcat/webapps/saiku/WEB-INF/classes/legacy-datasources/collectEarthDS";
 		configFile = configFile.replace('/', File.separatorChar);
 		return configFile;
 	}
@@ -516,6 +519,8 @@ public class AnalysisSaikuService {
 				}
 			} catch (final IOException e) {
 				logger.error("Error while producing Relational DB from Collect format", e);
+			} catch (TemplateException e1) {
+				logger.error("Error while applying the freemarker template tothe Saiku data source", e1);
 			}
 
 		} catch (final CollectRdbException e) {
@@ -550,8 +555,6 @@ public class AnalysisSaikuService {
 		assignDimensionValues();
 
 		assignLUCDimensionValues();
-		
-		
 
 		addAreasPerRegion();
 
@@ -569,7 +572,7 @@ public class AnalysisSaikuService {
 
 	private void addAreasPerRegion() throws SQLException {
 
-		final File regionAreas = new File(getIdmFolder() + File.separatorChar + REGION_AREAS_CSV);
+		final File regionAreas = new File( localPropertiesService.getProjectFolder() + File.separatorChar + REGION_AREAS_CSV);
 		String schemaName = getSchemaPrefix();
 		
 		if (regionAreas.exists()) {
@@ -588,7 +591,7 @@ public class AnalysisSaikuService {
 						Object[] parameters = new String[]{region,plot_file};
 
 						int plots_per_region = jdbcTemplate.queryForInt( 
-								"SELECT count("+PLOT_ID+")FROM " + schemaName  + "plot  WHERE ( region=? OR plot_file=? ) AND land_use_category != '"+NO_DATA_LAND_USE+"' ", parameters);
+								"SELECT count("+getPlotIdName()+") FROM " + schemaName  + "plot  WHERE ( region=? OR plot_file=? ) AND land_use_category != '"+NO_DATA_LAND_USE+"' ", parameters);
 
 						Float expansion_factor_hectars_calc = 0f;
 						if( plots_per_region != 0 ){
@@ -629,8 +632,8 @@ public class AnalysisSaikuService {
 
 	}
 
-	private void refreshDataSourceForSaiku() throws IOException {
-		final File mdxFile = new File(getIdmFolder() + File.separatorChar + MDX_XML);
+	private void refreshDataSourceForSaiku() throws IOException, TemplateException {
+		final File mdxFile = new File( localPropertiesService.getProjectFolder() + File.separatorChar + MDX_XML);
 
 		Map<String, String> data = new HashMap<String, String>();
 		data.put("cubeFilePath", mdxFile.getAbsolutePath().replace('\\', '/'));
@@ -638,14 +641,24 @@ public class AnalysisSaikuService {
 		final File mdxTemplate = getMdxTemplate();
 		final File dataSourceTemplate = getDataSourceTemplate(data);
 
-		final File dataSourceFile = new File(getSaikuConfigurationFilePath());
-		FreemarkerTemplateUtils.applyTemplate(dataSourceTemplate, dataSourceFile, data);
+		// First try Saiku 2.5/2.6
+		File dataSourceFile;
+		try {
+			dataSourceFile = new File(getSaikuConfigurationFilePath());
+			FreemarkerTemplateUtils.applyTemplate(dataSourceTemplate, dataSourceFile, data);
+		} catch (Exception e) {
+			System.out.println("Saiku datasources file not found, testing witht the directory for the 3.0 datasources ");
+			e.printStackTrace();
+			dataSourceFile = new File(getSaikuThreeConfigurationFilePath());
+			FreemarkerTemplateUtils.applyTemplate(dataSourceTemplate, dataSourceFile, data);
+		}
+		
 
 		setMdxSaikuSchema(mdxTemplate, mdxFile);
 	}
 
 	private File getMdxTemplate() throws IOException {
-		final File mdxFileTemplate = new File(getIdmFolder() + File.separatorChar + MDX_TEMPLATE);
+		final File mdxFileTemplate = new File( localPropertiesService.getProjectFolder() + File.separatorChar + MDX_TEMPLATE);
 		if (!mdxFileTemplate.exists()) {
 			throw new IOException("The file containing the MDX Cube definition Template does not exist in expected location " + mdxFileTemplate.getAbsolutePath());
 		}
@@ -676,7 +689,7 @@ public class AnalysisSaikuService {
 		return dataSourceTemplate;
 	}
 
-	private void setMdxSaikuSchema(final File mdxFileTemplate, final File mdxFile ) throws IOException {
+	private void setMdxSaikuSchema(final File mdxFileTemplate, final File mdxFile ) throws IOException, TemplateException {
 		Map<String, String> saikuData = new HashMap<String, String>();
 		String saikuSchemaName = getSchemaName();
 		if( saikuSchemaName==null){
@@ -767,8 +780,10 @@ public class AnalysisSaikuService {
 
 	private void stopSaiku() throws SaikuExecutionException {
 		logger.warn("Stoping the Saiku server" + getSaikuFolder() + File.separator + STOP_SAIKU);
-		runSaikuBat(STOP_SAIKU);
-		this.setSaikuStarted(true);
+		if( isSaikuStarted() ){
+			runSaikuBat(STOP_SAIKU);
+			this.setSaikuStarted(true);
+		}
 		logger.warn("Finished stoping the Saiku server");
 	}
 
@@ -794,6 +809,32 @@ public class AnalysisSaikuService {
 
 	private void setSaikuStarted(boolean saikuStarted) {
 		this.saikuStarted = saikuStarted;
+	}
+
+	protected String getPlotIdName() {
+		
+		if( plotIdName == null ){
+		
+			try {
+				final String schemaName = getSchemaPrefix();
+				// Objet[] --> aspect_id, sloped_id, elevation_bucket_id, _plot_id
+				final List<Object[]> sqlUpdateValues = jdbcTemplate.query("SELECT "+PLOT_ID_NEW_NAME+" FROM " + schemaName + "plot where "+PLOT_ID_NEW_NAME+" < 0  ",
+						new RowMapper<Object[]>() {
+							@Override
+							public Object[] mapRow(ResultSet rs, int rowNum) throws SQLException {
+								return new Object[0];
+							}
+						});
+				plotIdName = PLOT_ID_NEW_NAME;
+			} catch (Exception e) {
+				logger.error( "The column  " + PLOT_ID_NEW_NAME + " does not exist, trying to use the older version " + PLOT_ID, e);
+				// This means that we are using the newer version of collect RDB where the name of the plot ID column has changed, It is not sure it will stay that way
+				plotIdName = PLOT_ID;
+			}
+			
+		}
+				
+		return plotIdName;
 	}
 
 }

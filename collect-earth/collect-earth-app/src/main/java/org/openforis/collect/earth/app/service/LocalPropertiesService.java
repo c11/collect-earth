@@ -25,7 +25,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * Class to access Collect Earth configuration. This class is used all over the code in order to fetch the values of the properties that can be
- * configured by the user, by directly editing the earth.properties file or by using the Tools->Properties menu option in the Collect Earth Window.
+ * configured by the user, by directly editing the earth.properties file or by using the Tools--Properties menu option in the Collect Earth Window.
  * 
  * @author Alfonso Sanchez-Paus Diaz
  * 
@@ -50,10 +50,10 @@ public class LocalPropertiesService {
 				"chrome_exe_path"), BROWSER_TO_USE("use_browser"), GEE_FUNCTION_PICK("gee_js_pickFunction"), GEE_ZOOM_OBJECT("gee_js_zoom_object"), GEE_ZOOM_METHOD(
 				"gee_js_zoom_method"), GEE_INITIAL_ZOOM("gee_initial_zoom"), AUTOMATIC_BACKUP("automatic_backup"), GEE_JS_LIBRARY_URL("gee_js_library_url"), SAIKU_SERVER_FOLDER("saiku_server_folder"), OPERATION_MODE(
 				"operation_mode"), DB_DRIVER("db_driver"), DB_USERNAME("db_username"), DB_PASSWORD("db_password"), DB_NAME("db_name"), DB_HOST(
-				"db_host"), DB_PORT("db_port"), UI_LANGUAGE("ui_language"), LAST_USED_FOLDER("last_used_folder"), LAST_EXPORTED_DATE("last_exported_survey_date"), OPEN_BING_MAPS("open_bing_maps"), OPEN_EARTH_ENGINE(
+				"db_host"), DB_PORT("db_port"), UI_LANGUAGE("ui_language"), LAST_USED_FOLDER("last_used_folder"), LAST_EXPORTED_DATE("last_exported_survey_date"), OPEN_GEE_PLAYGROUND("open_gee_playground"), OPEN_BING_MAPS("open_bing_maps"), OPEN_EARTH_ENGINE(
 						"open_earth_engine"), OPEN_TIMELAPSE("open_timelapse"),DISTANCE_BETWEEN_SAMPLE_POINTS("distance_between_sample_points"), DISTANCE_TO_PLOT_BOUNDARIES(
-								"distance_to_plot_boundaries"), INNER_SUBPLOT_SIDE("inner_point_side"), SAMPLE_SHAPE("sample_shape"),  SURVEY_NAME("survey_name"), NUMBER_OF_SAMPLING_POINTS_IN_PLOT(
-								"number_of_sampling_points_in_plot"), LOADED_PROJECTS("loaded_projects");
+								"distance_to_plot_boundaries"), INNER_SUBPLOT_SIDE("inner_point_side"), SAMPLE_SHAPE("sample_shape"),  SURVEY_NAME("survey_name"), GEE_PLAYGROUND_URL("gee_playground_url"), NUMBER_OF_SAMPLING_POINTS_IN_PLOT(
+								"number_of_sampling_points_in_plot"), LOADED_PROJECTS("loaded_projects"), ACTIVE_PROJECT_DEFINITION("active_project_definition"), LAST_IGNORED_UPDATE("last_ignored_update_version");
 
 
 		private String name;
@@ -69,7 +69,7 @@ public class LocalPropertiesService {
 
 	}
 
-	private final Logger logger = LoggerFactory.getLogger(LocalPropertiesService.class);
+	private Logger logger =null;
 	private Properties properties;
 	private static final String PROPERTIES_FILE_PATH_INITIAL = "earth.properties_initial";
 	private static final String PROPERTIES_FILE_PATH = FolderFinder.getLocalFolder() + File.separator + "earth.properties";
@@ -240,6 +240,7 @@ public class LocalPropertiesService {
 		FileReader fr = null;
 		boolean removeInitialFile =false;
 		File propertiesFileInitial = null;
+		logger = LoggerFactory.getLogger(LocalPropertiesService.class);
 		try {
 			
 			File propertiesFile = new File(PROPERTIES_FILE_PATH);						
@@ -287,13 +288,16 @@ public class LocalPropertiesService {
 
 	/**
 	 * Removes the GEE obfusted method/parameter names so that they are regenerated when GEE is accessed for the fist time.
-	 * This way we avoid the bug when the reobfuscation of GEE JS code changes the zooming methid but does not provoke an error.
+	 * This way we avoid the bug when the reobfuscation of GEE JS code changes the zooming method but does not provoke an error.
 	 */
 	@PreDestroy
 	public void removeGeeProperties() {
-		this.setValue(EarthProperty.GEE_ZOOM_METHOD, "", false);
+		
+		this.storeProperties();
+		
+/*		this.setValue(EarthProperty.GEE_ZOOM_METHOD, "", false);
 		this.setValue(EarthProperty.GEE_ZOOM_OBJECT, "", false);
-		this.setValue(EarthProperty.GEE_FUNCTION_PICK, "", true);
+		this.setValue(EarthProperty.GEE_FUNCTION_PICK, "", true);*/
 	}
 
 	public void saveBalloonFileChecksum(String checksum) {
@@ -361,7 +365,7 @@ public class LocalPropertiesService {
 	}
 
 	public void setUiLanguage(UI_LANGUAGE language) {
-		setValue(EarthProperty.UI_LANGUAGE, language.name());
+		setValue(EarthProperty.UI_LANGUAGE, language.name(), true);
 	}
 
 	public void setValue(EarthProperty key, String value) {
@@ -414,30 +418,30 @@ public class LocalPropertiesService {
 		return getCollectDBDriver().equals(CollectDBDriver.SQLITE);
 	}
 
-	public boolean isBingMapsSupported() {
-		boolean bingMaps = false;
-		if (getValue(EarthProperty.OPEN_BING_MAPS) != null && getValue(EarthProperty.OPEN_BING_MAPS).length() > 0) {
-			bingMaps = Boolean.parseBoolean(getValue(EarthProperty.OPEN_BING_MAPS));
+	private boolean isPropertySupported( EarthProperty earthProperty ) {
+		boolean supported = false;
+		String value = getValue(earthProperty);
+		if (value != null && value.length() > 0) {
+			supported = Boolean.parseBoolean(value);
 		}
-		return bingMaps;
+		return supported;
+	}
+	
+	public boolean isBingMapsSupported() {
+		
+		return isPropertySupported(EarthProperty.OPEN_BING_MAPS);
 	}
 
+	public boolean isGeePlaygroundSupported() {
+		return isPropertySupported(EarthProperty.OPEN_GEE_PLAYGROUND);
+	}
+	
 	public boolean isEarthEngineSupported() {
-		boolean earthEngine = false;
-		if (getValue(EarthProperty.OPEN_EARTH_ENGINE) != null && getValue(EarthProperty.OPEN_EARTH_ENGINE).length() > 0) {
-			earthEngine = Boolean.parseBoolean(getValue(EarthProperty.OPEN_EARTH_ENGINE));
-		}
-
-		return earthEngine;
+		return isPropertySupported(EarthProperty.OPEN_EARTH_ENGINE);
 	}
 
 	public boolean isTimelapseSupported() {
-		boolean timelapseSupported = false;
-		if (getValue(EarthProperty.OPEN_TIMELAPSE) != null && getValue(EarthProperty.OPEN_TIMELAPSE).length() > 0) {
-			timelapseSupported = Boolean.parseBoolean(getValue(EarthProperty.OPEN_TIMELAPSE));
-		}
-
-		return timelapseSupported;
+		return isPropertySupported(EarthProperty.OPEN_TIMELAPSE);
 	}
 
 	
@@ -446,4 +450,18 @@ public class LocalPropertiesService {
 	}
 
 	
+	public String getGeePlaygoundUrl(){
+		
+		if(  isPropertySupported(EarthProperty.GEE_PLAYGROUND_URL) ){
+			return getValue(EarthProperty.GEE_PLAYGROUND_URL );
+		}else{
+			return "https://ee-api.appspot.com";
+		}
+	}
+	
+	public String getProjectFolder() {
+		final File metadataFile = new File(getImdFile() );
+		return metadataFile.getParent();
+	}
+
 }

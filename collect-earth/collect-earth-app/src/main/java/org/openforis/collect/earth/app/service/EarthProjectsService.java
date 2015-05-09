@@ -13,6 +13,7 @@ import net.lingala.zip4j.exception.ZipException;
 
 import org.apache.commons.lang.ArrayUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.openforis.collect.earth.app.CollectEarthUtils;
 import org.openforis.collect.earth.app.EarthConstants;
 import org.openforis.collect.earth.app.service.LocalPropertiesService.EarthProperty;
 import org.slf4j.Logger;
@@ -112,17 +113,21 @@ public class EarthProjectsService {
 	 * Loads the contents of the project-specific properties into earth.properties
 	 * 
 	 * @param projectFolder The folder where the project definition and the rest of the files reside.
-	 * @return
-	 * @throws IllegalArgumentException
-	 * @throws IOException
+	 * @return True is the project was loaded corretlt
+	 * @throws IOException If the projct folder or one of its files cannot be found
 	 */
-	public boolean loadProject(File projectFolder ) throws IllegalArgumentException, IOException{
+	public boolean loadProjectInFolder(File projectFolder ) throws IOException{
 		
 		File projectPropertiesFile = getProjectPropertiesFile( projectFolder );
 		
 		boolean success = false;
 		
-		if( validateProjectDefinitionFile(projectPropertiesFile) ){
+		// Change the loaded project only if the project definition file has changed or the user changes project
+		if( 
+				!getProjectDefinitionMD5().equals( CollectEarthUtils.getMd5FromFile( getProjectPropertiesFile(projectFolder)) ) 
+					&&
+				validateProjectDefinitionFile(projectPropertiesFile) 
+		){
 		
 			Properties projectProperties = getProjectProperties( projectPropertiesFile );
 			
@@ -130,14 +135,26 @@ public class EarthProjectsService {
 			
 			addToProjectList(projectFolder);
 			
+			setProjectDefinitionMD5(projectFolder);
+			
 			success = true;
 		}
+		
 
 		return success;
 	}
 
 
-	private File getProjectPropertiesFile(File projectFolder) {
+	private void setProjectDefinitionMD5(File projectFolder) throws IOException {
+		localPropertiesService.setValue( EarthProperty.ACTIVE_PROJECT_DEFINITION, CollectEarthUtils.getMd5FromFile( getProjectPropertiesFile(projectFolder)) );
+	}
+	
+	private String getProjectDefinitionMD5() {
+		return localPropertiesService.getValue( EarthProperty.ACTIVE_PROJECT_DEFINITION);
+	}
+	
+
+	public File getProjectPropertiesFile(File projectFolder) {
 		return new File( projectFolder.getAbsolutePath() + File.separator + PROJECT_FILE_NAME );
 	}
 
@@ -157,7 +174,7 @@ public class EarthProjectsService {
 		
 	}
 
-	public EarthProperty getEarthPropertyEnum(Object key) {
+	private EarthProperty getEarthPropertyEnum(Object key) {
 		EarthProperty[] values = EarthProperty.values();
 		for (EarthProperty earthProperty : values) {
 			if( earthProperty.toString().equals( key ) ){
@@ -210,9 +227,10 @@ public class EarthProjectsService {
 	}
 	
 	
-	public boolean loadProjectContents( File projectZipFile ) throws IllegalArgumentException, IOException, ZipException{
+	public boolean loadCompressedProjectFile( File projectZipFile ) throws IllegalArgumentException, IOException, ZipException{
+				
 		File unzippedFolder = unzipContents(projectZipFile);
-		return loadProject(unzippedFolder);
+		return loadProjectInFolder(unzippedFolder);
 	}
 
 

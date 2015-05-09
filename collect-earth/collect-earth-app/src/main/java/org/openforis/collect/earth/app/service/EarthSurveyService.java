@@ -26,11 +26,13 @@ import org.openforis.collect.model.RecordValidationReportGenerator;
 import org.openforis.collect.model.RecordValidationReportItem;
 import org.openforis.collect.persistence.RecordPersistenceException;
 import org.openforis.collect.persistence.SurveyImportException;
+import org.openforis.idm.metamodel.AttributeDefinition;
 import org.openforis.idm.metamodel.NodeLabel.Type;
 import org.openforis.idm.metamodel.Schema;
 import org.openforis.idm.metamodel.xml.IdmlParseException;
 import org.openforis.idm.model.Entity;
 import org.openforis.idm.model.Node;
+import org.openforis.idm.model.TextAttribute;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -63,6 +65,7 @@ public class EarthSurveyService {
 	
 	@Autowired
 	private BasicDataSource dataSource;
+	
 
 	private void addLocalProperties(Map<String, String> placemarkParameters) {
 		placemarkParameters.put(SKIP_FILLED_PLOT_PARAMETER, localPropertiesService.shouldJumpToNextPlot() + ""); //$NON-NLS-1$
@@ -120,9 +123,10 @@ public class EarthSurveyService {
 		return localPropertiesService.getImdFile();
 	}
 
-	public Map<String, String> getPlacemark(String placemarkId) {
+	public Map<String, String> getPlacemark(Map<String, String> parameters) {
 		
-		final List<CollectRecord> summaries = recordManager.loadSummaries(getCollectSurvey(), EarthConstants.ROOT_ENTITY_NAME, placemarkId);
+		String[] keyValues = extractKeyValues(parameters);
+		final List<CollectRecord> summaries = recordManager.loadSummaries(getCollectSurvey(), EarthConstants.ROOT_ENTITY_NAME, keyValues);
 		
 		
 		CollectRecord record = null;
@@ -158,7 +162,7 @@ public class EarthSurveyService {
 	/**
 	 * Return a list of the Collect records that have been updated since the time passed as an argument.
 	 * This method is useful to update the status of the placemarks ( updating the icon on the KML using a NetworkLink )
-	 * @param updatedSince  
+	 * @param updatedSince  The date from which we want to find out if there were any records that were updates/added
 	 * @return The list of record that have been updated since the time stated in updatedSince
 	 */
 	public List<CollectRecord> getRecordsSavedSince(Date updatedSince) {
@@ -172,6 +176,36 @@ public class EarthSurveyService {
 				records.add(record);
 			}
 			return records;
+		} else {
+			return null;
+		}
+	}
+	
+	
+	public String[] getPlacemarksId(List<CollectRecord> listOfRecords) {
+		if (listOfRecords == null) {
+			return new String[0];
+		}
+		final String[] placemarIds = new String[listOfRecords.size()];
+		for (int i = 0; i < listOfRecords.size(); i++) {
+			if (listOfRecords.get(i).getRootEntity().get("id", 0) != null) {
+				placemarIds[i] = ((TextAttribute) listOfRecords.get(i).getRootEntity().get("id", 0)).getValue().getValue();
+			}
+		}
+
+		return placemarIds;
+	}
+	
+	
+	/**
+	 * Return the list of the IDs of records that are already saved (completely or partially) in the database.
+	 * @return The list of the IDs of the records for the survey in the DB
+	 */
+	public String[] getRecordsSavedIDs() {
+		final List<CollectRecord> recordsSavedForSurvey = recordManager.loadSummaries(getCollectSurvey(), EarthConstants.ROOT_ENTITY_NAME );
+		
+		if ((recordsSavedForSurvey !=null) && !recordsSavedForSurvey.isEmpty()) {
+			return getPlacemarksId( recordsSavedForSurvey );
 		} else {
 			return null;
 		}
@@ -230,14 +264,92 @@ public class EarthSurveyService {
 	}
 
 	public synchronized boolean storePlacemark(Map<String, String> parameters, String sessionId) {
+		
+		String[] keyValues = extractKeyValues(parameters);
 
-		final List<CollectRecord> summaries = recordManager.loadSummaries(getCollectSurvey(), EarthConstants.ROOT_ENTITY_NAME, parameters.get("collect_text_id")); //$NON-NLS-1$
+		final List<CollectRecord> summaries = recordManager.loadSummaries(getCollectSurvey(), EarthConstants.ROOT_ENTITY_NAME, keyValues); //$NON-NLS-1$
 
 		boolean success = false;
 
 		try {
 			// Add the operator to the collected data
 			parameters.put(COLLECT_TEXT_OPERATOR, localPropertiesService.getOperator());
+
+			CollectRecord record = null;
+			Entity plotEntity = null;
+
+			if (summaries.size() > 0) { // DELETE IF ALREADY PRESENT
+				record = summaries.get(0);
+				recordManager.delete(record.getId());
+				record = createRecord(sessionId);
+				plotEntity = record.getRootEntity();
+			} else {
+				// Create new record
+				record = createRecord(sessionId);
+				plotEntity = record.getRootEntity();
+				logger.warn("Creating a new plot entity with data " + parameters.toString()); //$NON-NLS-1$
+			}
+
+			if (isPlacemarSavedActively(parameters)) {
+				setPlacemarkSavedOn(parameters);
+			}
+
+			// Populate the data of the record using the HTTP parameters received
+			collectParametersHandler.saveToEntity(parameters, plotEntity);
+
+			// Do not validate unless actively saved
+			if (isPlacemarSavedActively(parameters)) {
+				addValidationMessages(parameters, record);
+			}
+
+			// Do not save unless there is no validation errors
+			if (!isPlacemarSavedActively(parameters) ||  ( record.getErrors() == 0 && record.getSkipped() == 0) ) {
+				record.setModifiedDate(new Date());
+				recordManager.save(record, sessionId);
+				success = true;
+			} else {
+				// Save the data anyway but set the Actively Saved flag to false
+				setPlacemarSavedActively(parameters, false);
+				return storePlacemark(parameters, sessionId);
+			}
+			
+		} catch (final RecordPersistenceException e) {
+			logger.error("Error while storing the record " + e.getMessage(), e); //$NON-NLS-1$
+		}
+		return success;
+	}
+
+	public String[] extractKeyValues(Map<String, String> parameters) {
+		List<AttributeDefinition> keyAttributeDefinitions = getCollectSurvey().getSchema().getRootEntityDefinition(EarthConstants.ROOT_ENTITY_NAME).getKeyAttributeDefinitions();
+		String[] keyValues = new String[ keyAttributeDefinitions.size()];
+		int arrIdx = 0;
+		for (AttributeDefinition keyDefinition : keyAttributeDefinitions) {
+			
+			String keyName = keyDefinition.getName();
+			
+			String keyValue = collectParametersHandler.findValueForParameter( parameters, keyName);
+			
+			if( keyValue == null ){
+				throw new IllegalArgumentException("THe list of paramters should contain a parameter with name " + keyName + ". List of paramters : " + parameters.toString() );
+			}
+			keyValues[arrIdx++] = keyValue;
+			
+		}
+		return keyValues;
+	}
+
+	
+	public synchronized boolean updatePlacemark(Map<String, String> allData, Map<String,String> changedValues, String sessionId) {
+
+		String[] keyValues = extractKeyValues(allData);
+		
+		final List<CollectRecord> summaries = recordManager.loadSummaries(getCollectSurvey(), EarthConstants.ROOT_ENTITY_NAME, keyValues); //$NON-NLS-1$
+
+		boolean success = false;
+		/*
+		try {
+			// Add the operator to the collected data
+			allData.put(COLLECT_TEXT_OPERATOR, localPropertiesService.getOperator());
 
 			CollectRecord record = null;
 			Entity plotEntity = null;
@@ -279,8 +391,7 @@ public class EarthSurveyService {
 			}
 		} catch (final RecordPersistenceException e) {
 			logger.error("Error while storing the record " + e.getMessage(), e); //$NON-NLS-1$
-		}
+		}*/
 		return success;
 	}
-
 }
