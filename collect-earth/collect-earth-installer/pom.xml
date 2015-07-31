@@ -3,7 +3,7 @@
 	<parent>
 		<groupId>org.openforis.collect.earth</groupId>
 		<artifactId>collect-earth</artifactId>
-		<version>1.0.18-SNAPSHOT</version>
+		<version>1.1.15-SNAPSHOT</version>
 	</parent>
 	<artifactId>collect-earth-installer</artifactId>
 	<packaging>pom</packaging>
@@ -20,7 +20,7 @@
 		<!-- installer file names -->
 		<windows-installer-file-name>CollectEarth-${project.version}-windows-installer.exe</windows-installer-file-name>
 		<linux-installer-file-name>CollectEarth-${project.version}-linux-installer.run</linux-installer-file-name>
-		<osx-installer-file-name>CollectEarth-${project.version}-osx-installer.app.zip</osx-installer-file-name>
+		<osx-installer-file-name>CollectEarth-${project.version}-osx-installer.dmg</osx-installer-file-name>
 		<!-- autoupdater file names -->
 		<windows-autoupdater-file-name>CollectEarthUpdater-${project.version}-windows-installer.exe</windows-autoupdater-file-name>
 		<linux-autoupdater-file-name>CollectEarthUpdater-${project.version}-linux-installer.run</linux-autoupdater-file-name>
@@ -116,6 +116,8 @@
 											<overWrite>false</overWrite>
 											<outputDirectory>${installer-build-path}/jre_files</outputDirectory>
 										</artifactItem>
+<!-- 									
+No Solaris installer necessary	
 										<artifactItem>
 											<groupId>com.oracle.java</groupId>
 											<artifactId>jre</artifactId>
@@ -133,7 +135,8 @@
 											<type>zip</type>
 											<overWrite>false</overWrite>
 											<outputDirectory>${installer-build-path}/jre_files</outputDirectory>
-										</artifactItem>
+										</artifactItem> 
+-->
 	
 									</artifactItems>
 								</configuration>
@@ -188,6 +191,8 @@
 							<includes>
 								<include>${installbuilder-file-name}</include>
 								<include>CollectEarthMain.xml</include>
+								<include>java.xml</include>
+								<include>earth.properties_initial</include>
 								<include>${installbuilder-file-name-updater}</include>
 								<include>update.ini</include>
 								<include>${autoupdater-xml-file-name}</include>
@@ -206,7 +211,18 @@
 									<token>COLLECT_EARTH_MAIN_FOLDER</token>
 									<value>${basedir}/..</value>
 								</replacement>
-								
+								<replacement>
+									<token>BING_MAPS_KEY</token>
+									<value>${bing_maps_key}</value>
+								</replacement>
+								<replacement>
+									<token>HERE_APP_ID</token>
+									<value>${here_app_id}</value>
+								</replacement>
+								<replacement>
+									<token>HERE_APP_CODE</token>
+									<value>${here_app_code}</value>
+								</replacement>
 							</replacements>
 						</configuration>
 					</plugin>
@@ -314,6 +330,7 @@
 									</arguments>
 								</configuration>
 							</execution>
+							
 						</executions>
 					</plugin>
 
@@ -336,37 +353,38 @@
 											<type>exe</type>
 										</artifact>
 										<artifact>
-											<file>${project.build.directory}/${linux-installer-file-name}</file>
-											<classifier>linux</classifier>
-											<type>run</type>
-										</artifact>
-										<artifact>
-											<file>${project.build.directory}/${osx-installer-file-name}</file>
-											<classifier>osx</classifier>
-											<type>zip</type>
-										</artifact>
-										
-										<artifact>
 											<file>${project.build.directory}/${windows-autoupdater-file-name}</file>
 											<classifier>windows-updater</classifier>
 											<type>exe</type>
+										</artifact>
+									 	
+										<artifact>
+											<file>${project.build.directory}/${linux-installer-file-name}</file>
+											<classifier>linux</classifier>
+											<type>run</type>
 										</artifact>
 										<artifact>
 											<file>${project.build.directory}/${linux-autoupdater-file-name}</file>
 											<classifier>linux-updater</classifier>
 											<type>run</type>
 										</artifact>
+									
+										<artifact>
+											<file>${project.build.directory}/${osx-installer-file-name}</file>
+											<classifier>osx</classifier>
+											<type>dmg</type>
+										</artifact>										
 										<artifact>
 											<file>${project.build.directory}/${osx-autoupdater-file-name}</file>
 											<classifier>osx-updater</classifier>
 											<type>zip</type>
-										</artifact>
+										</artifact> 
+									
 									</artifacts>
 								</configuration>
 							</execution>
 						</executions>
 					</plugin>
-					
 					
 					<!-- 7 Upload the XML file that defines the presence of updates to the FTP directory -->
 					<plugin>
@@ -384,12 +402,14 @@
 								<configuration>
 									<tasks>
 										<move file="${installbuilder-output-directory}/${windows-installer-file-name}" tofile="${project.build.directory}/${windows-installer-file-name}" failonerror="true" />
-										<move file="${installbuilder-output-directory}/${linux-installer-file-name}" tofile="${project.build.directory}/${linux-installer-file-name}" failonerror="true" />
-										<move file="${installbuilder-output-directory}/${osx-installer-file-name}" tofile="${project.build.directory}/${osx-installer-file-name}" failonerror="true" />
-										
 										<move file="${installbuilder-output-directory}/${windows-autoupdater-file-name}" tofile="${project.build.directory}/${windows-autoupdater-file-name}" failonerror="true" />
+										
+										<move file="${installbuilder-output-directory}/${linux-installer-file-name}" tofile="${project.build.directory}/${linux-installer-file-name}" failonerror="true" />
 										<move file="${installbuilder-output-directory}/${linux-autoupdater-file-name}" tofile="${project.build.directory}/${linux-autoupdater-file-name}" failonerror="true" />
-										<move file="${installbuilder-output-directory}/${osx-autoupdater-file-name}" tofile="${project.build.directory}/${osx-autoupdater-file-name}" failonerror="true" />
+										
+										<move file="${installbuilder-output-directory}/${osx-installer-file-name}" tofile="${project.build.directory}/${osx-installer-file-name}" failonerror="true" />
+										<move file="${installbuilder-output-directory}/${osx-autoupdater-file-name}" tofile="${project.build.directory}/${osx-autoupdater-file-name}" failonerror="true" /> 
+										
 									</tasks>
 								</configuration>
 							</execution>
@@ -423,9 +443,12 @@
 						</dependencies>
 					
 					</plugin>
+	
+					
 				</plugins>
 			</build>
 		</profile>
+		
 	</profiles>
 
 </project>

@@ -31,9 +31,6 @@
                     <origin>COLLECT_EARTH_MAIN_FOLDER/collect-earth-app/src/main/resources/images</origin>
                 </distributionDirectory>
                 <distributionDirectory>
-                    <origin>COLLECT_EARTH_MAIN_FOLDER/collect-earth-app/resources</origin>
-                </distributionDirectory>
-                <distributionDirectory>
                     <origin>COLLECT_EARTH_MAIN_FOLDER/collect-earth-app/target/earth-libs</origin>
                 </distributionDirectory>
                 <distributionFile>
@@ -52,7 +49,7 @@
                     <origin>COLLECT_EARTH_MAIN_FOLDER/collect-earth-app/UserManual.pdf</origin>
                 </distributionFile>
                 <distributionDirectory>
-                    <origin>COLLECT_EARTH_MAIN_FOLDER/collect-earth-app/resources/lucas_demo</origin>
+                    <origin>COLLECT_EARTH_MAIN_FOLDER/collect-earth-app/resources/drylands_demo</origin>
                 </distributionDirectory>
                 <distributionFile>
                     <origin>earth.properties_initial</origin>
@@ -77,6 +74,45 @@
                     <windowsPath>${installdir}</windowsPath>
                 </shortcut>
             </shortcutList>
+        </folder>
+		<folder>
+            <description>Resources Windows</description>
+            <destination>${installdir}</destination>
+            <name>resourceswindows</name>
+            <platforms>windows</platforms>
+            <distributionFileList>
+	         	<distributionDirectory>
+	                <excludeFiles>*/chromedriver</excludeFiles>
+	                <excludeFiles>*/chromedriver_mac</excludeFiles>
+	            	<origin>../../../collect-earth-app/resources</origin>
+	            </distributionDirectory>
+            </distributionFileList>
+        </folder>
+        <folder>
+            <description>Resources Linux</description>
+            <destination>${installdir}</destination>
+            <name>resourceslinux</name>
+            <platforms>linux</platforms>
+            <distributionFileList>
+	         	<distributionDirectory>
+	                <excludeFiles>*/chromedriver.exe</excludeFiles>
+	                <excludeFiles>*/chromedriver_mac</excludeFiles>
+	            	<origin>../../../collect-earth-app/resources</origin>
+	            </distributionDirectory>
+            </distributionFileList>
+        </folder>
+        <folder>
+            <description>Resources Mac</description>
+            <destination>${installdir}</destination>
+            <name>resourcesosx</name>
+            <platforms>osx</platforms>
+            <distributionFileList>
+	         	<distributionDirectory>
+	                <excludeFiles>*/chromedriver.exe</excludeFiles>
+	                <excludeFiles>*/chromedriver</excludeFiles>
+	            	<origin>../../../collect-earth-app/resources</origin>
+	            </distributionDirectory>
+            </distributionFileList>
         </folder>
         <folder>
             <description>Program Files</description>
@@ -112,9 +148,11 @@
             <name>programfilesosx</name>
             <platforms>osx</platforms>
             <distributionFileList>
+                <!-- 
                 <distributionFile>
                     <origin>launcher_icon.icns</origin>
                 </distributionFile>
+                 -->
                 <distributionDirectory>
                     <origin>COLLECT_EARTH_MAIN_FOLDER/collect-earth-app/autoupdate/autoupdate.app</origin>
                 </distributionDirectory>
@@ -127,14 +165,32 @@
             <progressText>Creating Launcher</progressText>
             <value>CollectEarth.jar</value>
         </setInstallerVariable>
+         <if>
+        	<actionList>
+        		<setInstallerVariable>
+        			<name>default_installdir</name>
+        			<value>${env(SYSTEMDRIVE)}/OpenForis/${product_shortname}</value> 
+        		</setInstallerVariable>
+        	</actionList>
+        	<conditionRuleList>
+        		<platformTest><type>windows</type></platformTest>
+			</conditionRuleList> 
+			<elseActionList>
+				<setInstallerVariable>
+				<name>default_installdir</name>
+				<value>~/OpenForis/${product_shortname}</value>
+			</setInstallerVariable>
+			</elseActionList>
+		</if>
     </initializationActionList>
+    
     <parameterList>
         <directoryParameter>
             <name>installdir</name>
             <description>Installer.Parameter.installdir.description</description>
             <explanation>Installer.Parameter.installdir.explanation</explanation>
             <value></value>
-            <default>${env(SYSTEMDRIVE)}/OpenForis/${product_shortname}</default>
+            <default>${default_installdir}</default>
             <allowEmptyValue>0</allowEmptyValue>
             <ask>yes</ask>
             <cliOptionName>prefix</cliOptionName>
@@ -145,6 +201,7 @@
     </parameterList>
     <postBuildActionList>
         <!-- Change installer icon on OS X, during build time -->
+        
         <copyFile>
             <destination>${installbuilder_output_filename}/Contents/Resources/installbuilder.icns</destination>
             <origin>COLLECT_EARTH_MAIN_FOLDER/collect-earth-installer/src/main/resources/installer_icon.icns</origin>
@@ -187,6 +244,7 @@
                 </substitution>
             </substitutionList>
         </substitute>
+        <!-- Set the Instalaltion directory on the registry (windows) or ini file( Linux/Mac) so that it can be used by the updater -->
         <registrySet>
             <!-- Update the installed version -->
             <key>HKEY_LOCAL_MACHINE\SOFTWARE\${project.vendor}\${project.fullName}</key>
@@ -194,14 +252,32 @@
             <type>REG_SZ</type>
             <value>${installdir}</value>
         </registrySet>
+        <iniFileSet>
+                <file>~/.${project.vendor}-${project.fullName}.ini</file>
+                <key>InstallationPath</key>
+                <section>details</section>
+                <value>${installdir}</value>
+                <ruleList>
+            		<platformTest negate="1" type="windows"/>
+        		</ruleList>
+        </iniFileSet>       
+	    <addFilesToUninstaller files="/etc/${project.vendor}-${project.fullName}.ini"/>
+	
         <changePermissions>
             <files>${installdir}/${java_launcher_binary_name};${installdir}/*.log;${installdir}/*.properties;${installdir}/generated;${installdir}/*.db;${installdir}/*.dbSaiku</files>
             <permissions>0777</permissions>
         </changePermissions>
-
-       
+		<changePermissions> 
+			<files>${installdir}/*.app/Contents/MacOS/*</files>
+			<permissions>0755</permissions>
+			<ruleList>
+                <platformTest>
+                    <type>osx</type>
+                </platformTest>
+            </ruleList>
+		</changePermissions>
+        <!--
         <runProgram>
-        	<abortOnError>0</abortOnError>
             <program>chown</program>
             <programArguments>-fR ${system_username}  "${installdir}/${java_launcher_binary_name}" "${installdir}/earth_error.log" "${installdir}/earth.properties" "${installdir}/generated" "${installdir}/collectEarthDatabase.db" "${installdir}/collectEarthDatabase.dbSaiku"</programArguments>
             <ruleList>
@@ -212,7 +288,6 @@
             </ruleList>
         </runProgram>
         <runProgram program="chmod">
-        	<abortOnError>0</abortOnError>
             <programArguments>-R ugo+rwX "${installdir}/${java_launcher_binary_name}" "${installdir}/earth_error.log" "${installdir}/earth.properties" "${installdir}/generated" "${installdir}/collectEarthDatabase.db" "${installdir}/collectEarthDatabase.dbSaiku"</programArguments>
             <ruleList>
                 <platformTest>
@@ -222,9 +297,21 @@
             </ruleList>
         </runProgram>
 		
+        -->
+        
+        <!--
+        <copyFile>
+            <abortOnError>0</abortOnError>
+            <destination>${installdir}/${java_launcher_binary_name}/Contents/Resources/installbuilder.icns</destination>
+            <origin>${installdir}/launcher_icon.icns</origin>
+            <ruleList>
+                <compareText logic="equals" text="${platform_name}" value="osx"/>
+            </ruleList>
+        </copyFile>
+        -->
+        
         
         <createSymLink>
-        	<abortOnError>0</abortOnError>
             <linkName>~/Desktop/Collect Earth.app</linkName>
             <target>${installdir}/${java_launcher_binary_name}</target>
             <ruleList>
@@ -234,7 +321,6 @@
             </ruleList>
         </createSymLink>
         <associateWindowsFileExtension>
-        	<abortOnError>0</abortOnError>
             <extensions>.cep</extensions>
             <friendlyName>Collect Earth Project file</friendlyName>
             <icon>${installdir}\launcher_icon.ico</icon>
@@ -250,32 +336,8 @@
                 </command>
             </commandList>
         </associateWindowsFileExtension>
-        
-        <!--  Launch Collect Earth when double-clicking in cep files (Mac OS X) -->
-        <!--  register the mime-type launcher -->
         <runProgram>
-        	<abortOnError>0</abortOnError>
-		    <program>defaults</program>
-		    <programArguments>write "${installdir}/${java_launcher_binary_name}/Contents/Info" CFBundleIdentifier vnd.openforis.collectearth</programArguments>
-		    <ruleList>
-                <platformTest>
-                    <type>osx</type>
-                </platformTest>
-            </ruleList>
-		</runProgram>
-		<runProgram>
-			<abortOnError>0</abortOnError>
-		    <program>plutil</program>
-		    <programArguments>-convert xml1 "${installdir}/${java_launcher_binary_name}/Contents/Info.plist" </programArguments>
-		    <ruleList>
-                <platformTest>
-                    <type>osx</type>
-                </platformTest>
-            </ruleList>
-		</runProgram>
-
-        <runProgram>
-        	
+        	<!--  Launch Collect Earth when double-clicking in cep files (Mac OS X) -->
         	<abortOnError>0</abortOnError>
             <program>defaults</program>
            <!-- The CDATA notation allow escaping a

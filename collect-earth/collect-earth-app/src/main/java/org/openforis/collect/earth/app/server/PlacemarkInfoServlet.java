@@ -8,9 +8,6 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
 import org.openforis.collect.earth.app.EarthConstants;
-import org.openforis.collect.earth.app.service.CollectParametersHandlerService;
-import org.openforis.collect.earth.app.service.EarthSurveyService;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.RequestMapping;
 
@@ -19,56 +16,58 @@ import org.springframework.web.bind.annotation.RequestMapping;
  * 
  * @author Alfonso Sanchez-Paus Diaz
  * 
+ * @deprecated Replaced by {@link PlacemarkDataController}
  */
+@Deprecated
 @Controller
 public class PlacemarkInfoServlet extends JsonPocessorServlet {
 
-	private static final String PLACEMARK_ID = "collect_text_id";
+	public static final String PLACEMARK_ID_PARAMETER = "collect_text_id"; //$NON-NLS-1$
 
-	@Autowired
-	EarthSurveyService earthSurveyService;
 
-	/* 
+	/**
 	 * Returns a JSON object with the data colleted for a placemark in the collect-earth format.
-	 * It also opens the extra browser windows for Earth Engine, Timelapse and Bing. 
-	 * (non-Javadoc)
-	 * @see org.openforis.collect.earth.app.server.JsonPocessorServlet#processRequest(javax.servlet.http.HttpServletRequest, javax.servlet.http.HttpServletResponse)
+	 * @param request
+	 * @param response
+	 * @throws IOException
 	 */
 	@RequestMapping("/placemarkInfo")
-	protected void processRequest(HttpServletRequest request, HttpServletResponse response) throws IOException {
-		Map<String, String> parameters = extractRequestData(request);
-		Map<String, String> dataInDB = null;
-		String[] placemarkIdValues;
-		try {
-			
-			placemarkIdValues = earthSurveyService.extractKeyValues(parameters);
-			dataInDB = getDataAccessor().getData(parameters);
-			
-			if (dataInDB != null && dataInDB.get(EarthConstants.PLACEMARK_FOUND_PARAMETER) != null
-					&& dataInDB.get(EarthConstants.PLACEMARK_FOUND_PARAMETER).equals("true")) {
-				
-				setResult(true, "The placemark was found", dataInDB);
-				getLogger().info("A placemark was found with these properties" + dataInDB.toString());
-				
-			} else {
-				
-				if (dataInDB == null) {
-					dataInDB = new HashMap<String, String>();
-				}
-				setResult(false, "No placemark found", parameters);
-				getLogger().info("No placemark found " + parameters.toString());
-				
-			}
-			
-		} catch (Exception e) {
-
-			setResult(false, "No placemark ID found in the request", parameters);
-			getLogger().error("No placemark ID found in the received request");
-		}
+	protected void placemarkInfoOld(HttpServletRequest request, HttpServletResponse response) throws IOException {
+		Map<String, String> collectedData = extractRequestData(request);
+		String placemarkId = getPlacemarkId(collectedData);
 		
+		if (placemarkId == null) {
+			setResult(false, "No placemark ID found in the request", collectedData); //$NON-NLS-1$
+			getLogger().error("No placemark ID found in the received request"); //$NON-NLS-1$
+		} else {
+			placemarkId = replacePlacemarkIdTestValue(placemarkId);
+			collectedData = getDataAccessor().getData(placemarkId);
+			if (collectedData != null && collectedData.get(EarthConstants.PLACEMARK_FOUND_PARAMETER) != null
+					&& collectedData.get(EarthConstants.PLACEMARK_FOUND_PARAMETER).equals("true")) { //$NON-NLS-1$
+				setResult(true, "The placemark was found", collectedData); //$NON-NLS-1$
+				getLogger().info("A placemark was found with these properties" + collectedData.toString()); //$NON-NLS-1$
+			} else {
+				if (collectedData == null) {
+					collectedData = new HashMap<String, String>();
+				}
+				setResult(false, "No placemark found", collectedData); //$NON-NLS-1$
+				getLogger().info("No placemark found " + collectedData.toString()); //$NON-NLS-1$
+			}
+		}
 
-		setJsonResponse(response, dataInDB);
+		setJsonResponse(response, collectedData);
 
 	}
 
+	private String getPlacemarkId(Map<String, String> collectedData) {
+		return collectedData.get(PlacemarkInfoServlet.PLACEMARK_ID_PARAMETER);
+	}
+
+	private String replacePlacemarkIdTestValue(String placemarkId) {
+		if (placemarkId.equals("$[id]")) { //$NON-NLS-1$
+			placemarkId = "testPlacemark"; //$NON-NLS-1$
+		}
+		return placemarkId;
+	}
+	
 }

@@ -11,6 +11,7 @@ import java.io.InputStreamReader;
 import java.io.StringWriter;
 import java.io.Writer;
 import java.net.URL;
+import java.security.Security;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.util.Arrays;
@@ -20,7 +21,9 @@ import java.util.Observable;
 import java.util.Observer;
 import java.util.Properties;
 import java.util.Vector;
+import java.util.zip.GZIPInputStream;
 
+import javax.annotation.PostConstruct;
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLContext;
@@ -34,11 +37,12 @@ import liquibase.util.SystemUtils;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.openforis.collect.earth.app.EarthConstants;
-import org.openforis.collect.earth.app.desktop.ServerController;
+import org.openforis.collect.earth.app.desktop.ServerController.ServerInitializationEvent;
 import org.openforis.collect.earth.app.service.LocalPropertiesService.EarthProperty;
 import org.openqa.selenium.By;
 import org.openqa.selenium.JavascriptExecutor;
 import org.openqa.selenium.Keys;
+import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebDriverException;
 import org.openqa.selenium.WebElement;
 import org.openqa.selenium.chrome.ChromeDriver;
@@ -110,21 +114,19 @@ public class BrowserService implements Observer{
 	private static final Configuration cfg = new Configuration();
 	private static Template template;
 
-	private RemoteWebDriver webDriverEE, webDriverBing, webDriverTimelapse, webDriverGeePlayground;
+	private RemoteWebDriver webDriverEE, webDriverBing, webDriverTimelapse, webDriverGeePlayground, webDriverHere;
 
 	private static boolean geeMethodUpdated = false;
 
-	
-	@Override
-	protected void finalize() throws Throwable {
-		super.finalize();
-		closeBrowsers();
-	}
 
 	public void closeBrowsers() {
-		getClosingBrowsersThread().start();
+		synchronized (this) {
+			getClosingBrowsersThread().start();
+		}
+		
 	}
 	
+	@PostConstruct
 	public void attachShutDownHook() {
 		Runtime.getRuntime().addShutdownHook(
 				getClosingBrowsersThread()
@@ -179,12 +181,13 @@ public class BrowserService implements Observer{
 			final URL geeJsUrl = new URL(localPropertiesService.getValue(EarthProperty.GEE_JS_LIBRARY_URL));
 
 			// Start Work-around so that we can connect to an HTTPS server without needing to include the certificate
+			Security.getProviders();
 			final SSLContext ssl = SSLContext.getInstance("TLSv1");
 			ssl.init(null, new TrustManager[] { new TrustAllCertificates() }, null);
 			final SSLSocketFactory factory = ssl.getSocketFactory();
 			final HttpsURLConnection connection = (HttpsURLConnection) geeJsUrl.openConnection();
 			connection.setSSLSocketFactory(factory);
-
+			
 			connection.setHostnameVerifier(new HostnameVerifier() {
 				@Override
 				public boolean verify(String hostname, SSLSession session) {
@@ -193,7 +196,11 @@ public class BrowserService implements Observer{
 			});
 			// End or work-around
 
-			in = new BufferedReader(new InputStreamReader(connection.getInputStream()));
+			if (connection.getHeaderField("Content-Encoding")!=null && connection.getHeaderField("Content-Encoding").equals("gzip")){
+	            in = new BufferedReader(new InputStreamReader(new GZIPInputStream(connection.getInputStream())));            
+	        } else {
+	            in = new BufferedReader(new InputStreamReader(connection.getInputStream()));            
+	        }     
 			String inputLine;
 			while ((inputLine = in.readLine()) != null) {
 				jsResult.append(inputLine);
@@ -264,7 +271,7 @@ public class BrowserService implements Observer{
 		return driver;
 	}
 
-	private boolean isGEEValidJS(String geeJs, RemoteWebDriver driver) {
+	/*private boolean isGEEValidJS(String geeJs, RemoteWebDriver driver) {
 
 		boolean stillValid = false;
 
@@ -279,7 +286,7 @@ public class BrowserService implements Observer{
 		}
 
 		return stillValid;
-	}
+	}*/
 
 	private boolean isIdOrNamePresent(String elementId, RemoteWebDriver driver) {
 		boolean found = false;
@@ -338,10 +345,11 @@ public class BrowserService implements Observer{
 						String geeJs = getGEEJavascript(latLong);
 						if (!isGeeMethodUpdated()) {
 							try {
-								if (!isGEEValidJS(geeJs, driver)) {
+								// REFRESH EVERY TIME!!!
+								// if (!isGEEValidJS(geeJs, driver)) {
 									refreshJSValues(geeJs, driver);
 									geeJs = getGEEJavascript(latLong);
-								}
+								//}
 							} catch (final Exception e) {
 								logger.error("Error checking the validity of the GEE js code", e);
 							} finally {
@@ -383,7 +391,7 @@ public class BrowserService implements Observer{
 		}
 	}
 	
-	public synchronized RemoteWebDriver navigateTo(String url, RemoteWebDriver driver ) throws BrowserNotFoundException {
+	public RemoteWebDriver navigateTo(String url, RemoteWebDriver driver ) throws BrowserNotFoundException {
 		return navigateTo(url, driver, true);
 	}
 
@@ -393,9 +401,9 @@ public class BrowserService implements Observer{
 	 * @param driver The browser window to use. If this value is null a new browser window is open.
 	 * @param retry Specify if there should be a second try to open a browser window if the first time fails (useful if the browser could not be found)
 	 * @return THe browser window (firefox or chrome depending on the configuration) used to open the URL.
-	 * @throws BrowserNotFoundException 
+	 * @throws BrowserNotFoundException Exception thrown when there is no Firefox/Chrome installed
 	 */
-	public synchronized RemoteWebDriver navigateTo(String url, RemoteWebDriver driver, boolean retry ) throws BrowserNotFoundException {
+	public RemoteWebDriver navigateTo(String url, RemoteWebDriver driver, boolean retry ) throws BrowserNotFoundException {
 
 		if (driver == null || !isDriverWorking(driver) ) {
 			driver = initBrowser();
@@ -435,7 +443,7 @@ public class BrowserService implements Observer{
 	 * @throws BrowserNotFoundException In case the browser could not be found
 	 * 
 	 */
-	public synchronized void openBingMaps(String coordinates) throws BrowserNotFoundException {
+	public void openBingMaps(String coordinates) throws BrowserNotFoundException {
 
 		if (localPropertiesService.isBingMapsSupported()) {
 
@@ -449,7 +457,7 @@ public class BrowserService implements Observer{
 				@Override
 				public void run() {
 					try {
-						webDriverBing = navigateTo(geoLocalizeTemplateService.getTemporaryUrl(latLong, GeolocalizeMapService.FREEMARKER_BING_HTML_TEMPLATE).toString(), driverCopy);
+						webDriverBing = navigateTo(geoLocalizeTemplateService.getBingUrl(latLong,  localPropertiesService.getValue( EarthProperty.BING_MAPS_KEY), GeolocalizeMapService.FREEMARKER_BING_HTML_TEMPLATE).toString(), driverCopy);
 					} catch (final Exception e) {
 						logger.error("Problems loading Bing", e);
 					}
@@ -460,14 +468,54 @@ public class BrowserService implements Observer{
 			
 		}
 	}
+	
+	/**
+	 * Opens a browser window with the Here Maps representation of the plot.
+	 * @param coordinates The center point of the plot.
+	 * @throws BrowserNotFoundException In case the browser could not be found
+	 * 
+	 */
+	public void openHereMaps(String coordinates) throws BrowserNotFoundException {
 
+		if (localPropertiesService.isHereMapsSupported()) {
+
+			if (webDriverHere == null) {
+				webDriverHere = initBrowser();
+			}
+
+			final RemoteWebDriver driverCopy = webDriverHere;
+			final String[] centerPlotLocation = coordinates.split(",");
+			final Thread loadHereThread = new Thread() {
+				@Override
+				public void run() {
+					try {
+						webDriverHere = navigateTo(geoLocalizeTemplateService.getHereUrl(centerPlotLocation, localPropertiesService.getValue( EarthProperty.HERE_MAPS_APP_ID), localPropertiesService.getValue( EarthProperty.HERE_MAPS_APP_CODE), GeolocalizeMapService.FREEMARKER_HERE_HTML_TEMPLATE).toString(), driverCopy);
+					} catch (final Exception e) {
+						logger.error("Problems loading Here Maps", e);
+					}
+				};
+			};
+			
+			loadHereThread.start();
+			
+		}
+	}
+
+
+	private void paste(WebElement textarea, WebDriver webDriver, String jsGeeText) {
+	    JavascriptExecutor js = (JavascriptExecutor ) webDriver;
+	    js.executeScript("arguments[0].value='arguments[1]'", textarea, jsGeeText );
+
+	}
+	
+	
 	/**
 	 * Opens a browser window with the Google Earth Engine Playground and runs the freemarker template found in resources/eePlaygroundScript.fmt on the main editor of GEE. 
 	 * @param coordinates The center point of the plot.
 	 * @throws BrowserNotFoundException If the browser cannot be found
 	 * 
 	 */
-	public synchronized void openGeePlayground(String coordinates) throws BrowserNotFoundException {
+	public void openGeePlayground(String coordinates) throws BrowserNotFoundException {
 
 		if (localPropertiesService.isGeePlaygroundSupported()) {
 
@@ -492,11 +540,24 @@ public class BrowserService implements Observer{
 						WebElement textArea = webDriverGeePlayground.findElement(By.className("ace_text-input"));
 						
 						Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
-						StringSelection clipboardtext = new StringSelection( FileUtils.readFileToString( new File(fileWithScript.toURI())) );
+						String contents = FileUtils.readFileToString( new File(fileWithScript.toURI()));
+						StringSelection clipboardtext = new StringSelection( contents );
 						clipboard.setContents(clipboardtext, null);
 						
-						textArea.sendKeys(Keys.chord(Keys.CONTROL,"a"));
-						textArea.sendKeys(Keys.chord(Keys.CONTROL,"v"));
+						if( SystemUtils.IS_OS_MAC || SystemUtils.IS_OS_MAC_OSX){
+							
+							
+						    // Command key (apple key) is not working on Chrome on Mac. Try with the right clik
+							//Actions action= new Actions(webDriverGeePlayground);
+							//action.contextClick(textArea).clickAndHold().sendKeys(Keys.ARROW_DOWN).sendKeys(Keys.RETURN).release();
+							//action.contextClick(textArea).clickAndHold().sendKeys(Keys.ARROW_DOWN).sendKeys(Keys.ARROW_DOWN).sendKeys(Keys.RETURN).release();
+							textArea.sendKeys(Keys.chord(Keys.COMMAND,"a"));
+							textArea.sendKeys(Keys.chord(Keys.COMMAND,"v"));				
+						}else{
+							textArea.sendKeys(Keys.chord(Keys.CONTROL,"a"));
+							textArea.sendKeys(Keys.chord(Keys.CONTROL,"v"));
+						}
+						
 						
 						//textArea.sendKeys( FileUtils.readFileToString( new File(fileWithScript.toURI())) );
 						//((JavascriptExecutor)webDriverGeePlayground).executeScript("arguments[0].value = arguments[1];", textArea,);
@@ -537,7 +598,7 @@ public class BrowserService implements Observer{
 		// Where the metatadata file (usually placemark.idm.xml ) is located
 		
 		// Is there a "eePlaygroundScript.fmt" file in the same folder than in the metadata file folder?
-		File projectGeePlayground = new File( localPropertiesService.getProjectFolder() + File.separatorChar + GeolocalizeMapService.FREEMARKER_GEE_PLAYGROUND_TEMPLATE);
+		File projectGeePlayground = new File( localPropertiesService.getProjectFolder() + File.separatorChar + GeolocalizeMapService.FREEMARKER_GEE_PLAYGROUND_TEMPLATE_FILE_NAME);
 		
 		String geePlaygroundFilePath = null;
 		if( projectGeePlayground.exists() ){
@@ -552,7 +613,7 @@ public class BrowserService implements Observer{
 	 * @throws BrowserNotFoundException If the browser cannot be found
 	 * 
 	 */
-	public synchronized void openEarthEngine(String coordinates) throws BrowserNotFoundException {
+	public void openEarthEngine(String coordinates) throws BrowserNotFoundException {
 
 		logger.warn("Starting to open EE - supported : " + localPropertiesService.isEarthEngineSupported()   );
 		if (localPropertiesService.isEarthEngineSupported()) {
@@ -586,7 +647,7 @@ public class BrowserService implements Observer{
 	 * @throws BrowserNotFoundException If the browser cannot be found
 	 * 
 	 */
-	public synchronized void openTimelapse(final String coordinates) throws BrowserNotFoundException {
+	public void openTimelapse(final String coordinates) throws BrowserNotFoundException {
 
 		if (localPropertiesService.isTimelapseSupported()) {
 
@@ -616,6 +677,8 @@ public class BrowserService implements Observer{
 		final String jsGee = getCompleteGeeJS();
 		if (jsGee != null && jsGee.length() > 0) {
 			// try to find this pattern for the gee_js_pickFunction value ("workspace-el"); " var b=H("workspace-el"); "
+			// New one : var a=F("workspace-el");N(a,!0);N(F("savebox"),!0);if(!this.ya){var e=new google.maps.Map(F("map"),
+			
 			final int indexWorkspaceEL = jsGee.indexOf(WORKSPACE_EL);
 			int startEquals = 0;
 			for (startEquals = indexWorkspaceEL; startEquals > indexWorkspaceEL - 20; startEquals--) {
@@ -651,7 +714,9 @@ public class BrowserService implements Observer{
 
 		final Properties props = System.getProperties();
 		if (props.getProperty("webdriver.chrome.driver") == null) {
-			if( SystemUtils.IS_OS_UNIX ){
+			if( SystemUtils.IS_OS_MAC || SystemUtils.IS_OS_MAC_OSX){
+				props.setProperty("webdriver.chrome.driver", "resources/chromedriver_mac");
+			}else if( SystemUtils.IS_OS_UNIX ){
 				props.setProperty("webdriver.chrome.driver", "resources/chromedriver");
 			}else if( SystemUtils.IS_OS_WINDOWS ){
 				props.setProperty("webdriver.chrome.driver", "resources/chromedriver.exe");
@@ -742,6 +807,7 @@ public class BrowserService implements Observer{
 		return new Thread() {
 			@Override
 			public void run() {
+				
 				for (final RemoteWebDriver driver : drivers) {
 					try {
 						driver.quit();
@@ -755,8 +821,9 @@ public class BrowserService implements Observer{
 
 	@Override
 	public void update(Observable o, Object arg) {
-		if( arg == ServerController.SERVER_STOPPED_EVENT ){
+		if( ServerInitializationEvent.SERVER_STOPPED_EVENT.equals(arg) ){
 			this.closeBrowsers();
 		}
 	}
 }
+

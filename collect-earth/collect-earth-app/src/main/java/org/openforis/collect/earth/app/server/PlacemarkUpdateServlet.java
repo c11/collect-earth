@@ -18,13 +18,12 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-import javax.annotation.PostConstruct;
 import javax.servlet.http.HttpServletResponse;
 
 import org.openforis.collect.earth.app.EarthConstants;
+import org.openforis.collect.earth.app.desktop.ServerController;
 import org.openforis.collect.earth.app.service.EarthSurveyService;
 import org.openforis.collect.earth.app.service.LocalPropertiesService;
-import org.openforis.collect.earth.sampler.processor.KmlGenerator;
 import org.openforis.collect.earth.sampler.utils.FreemarkerTemplateUtils;
 import org.openforis.collect.model.CollectRecord;
 import org.slf4j.Logger;
@@ -48,8 +47,8 @@ import freemarker.template.TemplateException;
 @Controller
 public class PlacemarkUpdateServlet {
 
-	private static final String STANDARD_KML_FOR_UPDATES_FILENAME = "updateIcons.fmt";
-	private static final String GENERIC_KML_FOR_UPDATES = "resources/" + STANDARD_KML_FOR_UPDATES_FILENAME;
+	private static final String STANDARD_KML_FOR_UPDATES_FILENAME = "updateIcons.fmt"; //$NON-NLS-1$
+	private static final String GENERIC_KML_FOR_UPDATES = "resources/" + STANDARD_KML_FOR_UPDATES_FILENAME; //$NON-NLS-1$
 	private final Logger logger = LoggerFactory.getLogger(PlacemarkUpdateServlet.class);
 
 	@Autowired
@@ -61,16 +60,16 @@ public class PlacemarkUpdateServlet {
 	private static final Configuration cfg = new Configuration();
 	private static Template template;
   
-	@PostConstruct
+/*	@PostConstruct
 	private void init(){
 		try {
 			// Force the local properties to be updated so we get the right generatedOn info
 			localPropertiesService.init();
 			
 		} catch (IOException e) {
-			logger.error("Error refreshing the local properties");
+			logger.error("Error refreshing the local properties"); //$NON-NLS-1$
 		}
-	}
+	}*/
 
 	private String getKmlFromTemplate( Map<String, Object> data) throws IOException {
 
@@ -82,7 +81,7 @@ public class PlacemarkUpdateServlet {
 			// Add date to avoid caching
 			template.process(data, out);
 		} catch (final TemplateException e) {
-			logger.error("Error when producing starter KML from template", e);
+			logger.error("Error when producing starter KML from template", e); //$NON-NLS-1$
 		} finally {
 			out.flush();
 			fw.close();
@@ -141,28 +140,28 @@ public class PlacemarkUpdateServlet {
 		
 			List<CollectRecord> lastUpdatedRecords = null;
 			try {
-				lastUpdatedRecords = earthSurveyService.getRecordsSavedSince(lastUpdateDate);
+				lastUpdatedRecords = earthSurveyService.getRecordSummariesSavedSince(lastUpdateDate);
 			} catch (Exception e) {
 				lastUpdatedRecords = new ArrayList<CollectRecord>();
-				logger.error("Error fetching information about the records updated after : " + lastUpdatedRecords , e);
+				logger.error("Error fetching information about the records updated after : " + lastUpdatedRecords , e); //$NON-NLS-1$
 			}
 			
 			final Map<String, Object> data = new HashMap<String, Object>();
-			data.put("host", KmlGenerator.getHostAddress(localPropertiesService.getHost(), localPropertiesService.getLocalPort()));
-			data.put("date", getUpdateFromDate(dateFormat) ); // Keep for historical reasons
-			data.put("lastUpdateDateTime", getUpdateFromDate(dateFormat) );
-			data.put("uniqueId", FreemarkerTemplateUtils.randInt(10000, 5000000) );
-			data.put("kmlGeneratedOn", localPropertiesService.getGeneratedOn());
-			data.put("placemark_ids", earthSurveyService.getPlacemarksId(lastUpdatedRecords));
+			data.put("host", ServerController.getHostAddress(localPropertiesService.getHost(), localPropertiesService.getLocalPort())); //$NON-NLS-1$
+			data.put("date", getUpdateFromDate(dateFormat) ); // Keep for historical reasons //$NON-NLS-1$
+			data.put("lastUpdateDateTime", getUpdateFromDate(dateFormat) ); //$NON-NLS-1$
+			data.put("uniqueId", FreemarkerTemplateUtils.randInt(10000, 5000000) ); //$NON-NLS-1$
+			data.put("kmlGeneratedOn", localPropertiesService.getGeneratedOn()); //$NON-NLS-1$
+			data.put("placemark_ids", earthSurveyService.getPlacemarksId(lastUpdatedRecords)); //$NON-NLS-1$
 	
 			setKmlResponse(response, getKmlFromTemplate(data), dateFormat);
 			
 		} catch (final ParseException e) {
-			logger.error("Error in the lastUpdate date format : " + lastUpdate, e);
+			logger.error("Error in the lastUpdate date format : " + lastUpdate, e); //$NON-NLS-1$
 		} catch (final IOException e) {
-			logger.error("Error generating the update KML.", e);
+			logger.error("Error generating the update KML.", e); //$NON-NLS-1$
 		}catch (final Exception e) {
-			logger.error("Error generating the update KML.", e);
+			logger.error("Error generating the update KML.", e); //$NON-NLS-1$
 		}
 
 	}
@@ -170,15 +169,15 @@ public class PlacemarkUpdateServlet {
 	private String getUpdateFromDate(final SimpleDateFormat dateFormat) throws UnsupportedEncodingException {
 		Calendar cal = Calendar.getInstance();
 		cal.add(Calendar.MINUTE, -1);
-		return URLEncoder.encode(dateFormat.format(cal.getTime()), "UTF-8" );
+		return URLEncoder.encode(dateFormat.format(cal.getTime()), "UTF-8" ); //$NON-NLS-1$
 	}
 
 	private void setKmlResponse(HttpServletResponse response, String kmlCode, SimpleDateFormat dateFormat) throws IOException {
-		response.setHeader("Content-Type", "application/vnd.google-earth.kml+xml");
-		response.setHeader("Cache-Control", "max-age=30");
-		response.setHeader("Date", dateFormat.format(new Date()));
-		response.setHeader("Content-Length", kmlCode.getBytes(Charset.forName("UTF-8")).length + "");
-		response.getOutputStream().write(kmlCode.getBytes(Charset.forName("UTF-8")));
+		response.setHeader("Content-Type", "application/vnd.google-earth.kml+xml"); //$NON-NLS-1$ //$NON-NLS-2$
+		response.setHeader("Cache-Control", "max-age=30"); //$NON-NLS-1$ //$NON-NLS-2$
+		response.setHeader("Date", dateFormat.format(new Date())); //$NON-NLS-1$
+		response.setHeader("Content-Length", kmlCode.getBytes(Charset.forName("UTF-8")).length + ""); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+		response.getOutputStream().write(kmlCode.getBytes(Charset.forName("UTF-8"))); //$NON-NLS-1$
 		response.getOutputStream().close();
 	}
 	

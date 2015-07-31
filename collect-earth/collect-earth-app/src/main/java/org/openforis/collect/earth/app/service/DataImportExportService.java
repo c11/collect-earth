@@ -11,6 +11,7 @@ import org.openforis.collect.io.data.CSVDataImportProcess;
 import org.openforis.collect.io.data.DataImportSummaryItem;
 import org.openforis.collect.io.data.XMLDataExportProcess;
 import org.openforis.collect.io.data.XMLDataImportProcess;
+import org.openforis.collect.io.data.csv.CSVExportConfiguration;
 import org.openforis.collect.manager.RecordManager;
 import org.openforis.collect.manager.SurveyManager;
 import org.openforis.collect.model.CollectRecord;
@@ -62,11 +63,11 @@ public class DataImportExportService {
 		csvDataExportProcess.setOutputFile(exportToFile);
 
 		csvDataExportProcess.setEntityId(earthSurveyService.getCollectSurvey().getSchema().getRootEntityDefinition(EarthConstants.ROOT_ENTITY_NAME).getId());
-
-		csvDataExportProcess.setIncludeAllAncestorAttributes(true);
-
 		csvDataExportProcess.setRecordFilter( getRecordFilter() ) ;
-
+		
+		CSVExportConfiguration config = new CSVExportConfiguration();
+		config.setIncludeAllAncestorAttributes(true);
+		csvDataExportProcess.setConfiguration(config);
 
 		return csvDataExportProcess;
 	}
@@ -82,10 +83,14 @@ public class DataImportExportService {
 		final CSVDataExportProcess csvDataExportProcess = applicationContext.getBean(CSVDataExportProcess.class);
 		csvDataExportProcess.setOutputFile(exportToFile);
 		csvDataExportProcess.setEntityId(earthSurveyService.getCollectSurvey().getSchema().getRootEntityDefinition(EarthConstants.ROOT_ENTITY_NAME).getId());
-		csvDataExportProcess.setIncludeAllAncestorAttributes(true);
-		csvDataExportProcess.setIncludeCodeItemPositionColumn(true);
-		csvDataExportProcess.setIncludeKMLColumnForCoordinates(true);
 		csvDataExportProcess.setRecordFilter( getRecordFilter() ) ;
+		
+
+		CSVExportConfiguration config = new CSVExportConfiguration();
+		config.setIncludeAllAncestorAttributes(true);
+		config.setIncludeCodeItemPositionColumn(true);
+		config.setIncludeKMLColumnForCoordinates(true);
+		csvDataExportProcess.setConfiguration(config);
 		return csvDataExportProcess;
 	}
 
@@ -102,7 +107,7 @@ public class DataImportExportService {
 
 
 	public CSVDataImportProcess getCsvImporterProcess(File importFromFile) throws Exception {
-		final CSVDataImportProcess importProcess = applicationContext.getBean(CSVDataImportProcess.class);
+		final CSVDataImportProcess importProcess = applicationContext.getBean("transactionalCsvDataImportProcess", CSVDataImportProcess.class);
 
 		importProcess.setFile(importFromFile);
 		importProcess.setSurvey(earthSurveyService.getCollectSurvey());
@@ -117,6 +122,7 @@ public class DataImportExportService {
 	public XMLDataImportProcess getImportSummary(File zipWithXml, boolean importNonFinishedPlots) throws Exception {
 		final XMLDataImportProcess dataImportProcess = applicationContext.getBean(XMLDataImportProcess.class);
 		dataImportProcess.setFile(zipWithXml);
+		dataImportProcess.setValidateRecords(false);
 		dataImportProcess.prepareToStartSummaryCreation();
 
 		if( !importNonFinishedPlots ){ // Import only plots whose actively_saved state is set to true
@@ -127,11 +133,11 @@ public class DataImportExportService {
 					boolean include = true;
 
 					try {
-						final BooleanAttribute node = (BooleanAttribute) record.findNodeByPath("/plot/actively_saved");
+						final BooleanAttribute node = (BooleanAttribute) record.getNodeByPath("/plot/actively_saved"); //$NON-NLS-1$
 
 						include = (node == null || (node != null && !node.isEmpty() && node.getValue().getValue()) );
 					} catch (Exception e) {
-						logger.error("No \"/plot/actively_saved\" node found ", e );
+						logger.error("No \"/plot/actively_saved\" node found ", e ); //$NON-NLS-1$
 					}
 
 					return include;
@@ -156,7 +162,7 @@ public class DataImportExportService {
 			conflictingRecordsAdded = listConflictingRecords.size();
 		}
 
-		logger.warn("Data imported into db. Number of Records imported : " + entryIdsToImport.size() + " Conflicting records added : "
+		logger.warn("Data imported into db. Number of Records imported : " + entryIdsToImport.size() + " Conflicting records added : " //$NON-NLS-1$ //$NON-NLS-2$
 				+ conflictingRecordsAdded);
 	}
 

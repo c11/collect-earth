@@ -4,7 +4,6 @@ import java.io.File;
 import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URISyntaxException;
-import java.security.Policy.Parameters;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -33,7 +32,7 @@ import org.springframework.web.bind.annotation.RequestParam;
  * 
  */
 @Controller
-public class PlacemarkImageServlet extends JsonPocessorServlet {
+public class PlacemarkImageServlet extends DataAccessingServlet {
 
 	@Autowired
 	private EarthSurveyService earthSurveyService;
@@ -47,30 +46,30 @@ public class PlacemarkImageServlet extends JsonPocessorServlet {
 	 * Returns an icon/overlay image that represents the state of the placemark not-filled/filling/filled
 	 * @param response The HTTP response object
 	 * @param request The HTTP request object
+	 * @param placemarkId The ID of the placemark for which we want to get the icon/overlay
 	 * @param listView True if want to get the icon for the placemark list, false to get the overlay image (transparent or see-through red for filled placemarks)
 	 * @throws IOException In case the image icon cannot be open
 	 * @throws URISyntaxException In case the image icon URL contains an error
 	 */
 	@RequestMapping("/placemarkIcon")
-	public void getImage(HttpServletResponse response, HttpServletRequest request, 
+	public void getImage(HttpServletResponse response, HttpServletRequest request, @RequestParam("collect_text_id") String placemarkId,
 			@RequestParam(value = "listView", required = false) Boolean listView) throws IOException, URISyntaxException {
 
 		if( listView == null ){
-			throw new IllegalArgumentException("This servlet only responds to listView type of requests where the status icons for the placemarks are the expected result");
+			throw new IllegalArgumentException("This servlet only responds to listView type of requests where the status icons for the placemarks are the expected result"); //$NON-NLS-1$
 		}
 		
 		// If there is an exception while we get the record info (problem that might happen when using SQLite due to concurrency) return the yellow icon.
-		String imageName = null;
-		final Map<String, String> parameters = extractRequestData(request);
+		String imageName = EarthConstants.LIST_NOT_FINISHED_IMAGE;
 		try {
 			
-			final Map<String, String> placemarkParameters = earthSurveyService.getPlacemark(parameters);
+			final Map<String, String> placemarkParameters = earthSurveyService.getPlacemark(placemarkId,false);
 
-			if (earthSurveyService.isPlacemarSavedActively(placemarkParameters)) {
+			if (earthSurveyService.isPlacemarkSavedActively(placemarkParameters)) {
 				if (listView != null && listView) {
 					imageName = EarthConstants.LIST_FILLED_IMAGE;
 				} 
-			} else if (earthSurveyService.isPlacemarEdited(placemarkParameters)) {
+			} else if (earthSurveyService.isPlacemarkEdited(placemarkParameters)) {
 				if (listView != null && listView) {
 					imageName = EarthConstants.LIST_NOT_FINISHED_IMAGE;
 				} 
@@ -81,10 +80,9 @@ public class PlacemarkImageServlet extends JsonPocessorServlet {
 			}
 			
 		} catch (Exception e) {
-			logger.error("Error loading image for placemark with data " + parameters.toString() , e);
+			logger.error("Error loading image for placemark with ID " + placemarkId , e); //$NON-NLS-1$
 			System.out.println( e );
-			// If there is an exception while we get the record info (problem that might happen when using SQLite due to concurrency) return the yellow icon.
-			imageName = EarthConstants.LIST_NOT_FINISHED_IMAGE;
+			
 		}finally{
 			returnImage(response, request, imageName);
 		}
@@ -99,10 +97,10 @@ public class PlacemarkImageServlet extends JsonPocessorServlet {
 
 	private void returnImage(HttpServletResponse response, HttpServletRequest request, String imageName) throws IOException, URISyntaxException {
 		
-		response.setHeader("Content-Type", "image/png");
-		response.setHeader("Content-Disposition", "inline; filename=\"" + imageName + "\"");
-		response.setHeader("Cache-Control", "max-age=30");
-		response.setHeader("Date", new SimpleDateFormat(EarthConstants.DATE_FORMAT_HTTP, Locale.ENGLISH).format(new Date()));
+		response.setHeader("Content-Type", "image/png"); //$NON-NLS-1$ //$NON-NLS-2$
+		response.setHeader("Content-Disposition", "inline; filename=\"" + imageName + "\""); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+		response.setHeader("Cache-Control", "max-age=30"); //$NON-NLS-1$ //$NON-NLS-2$
+		response.setHeader("Date", new SimpleDateFormat(EarthConstants.DATE_FORMAT_HTTP, Locale.ENGLISH).format(new Date())); //$NON-NLS-1$
 
 		byte[] resultingImage = null;
 		if (imageName.equals(EarthConstants.LIST_NON_FILLED_IMAGE)) {
@@ -114,10 +112,10 @@ public class PlacemarkImageServlet extends JsonPocessorServlet {
 		}
 		
 		if (resultingImage != null) {
-			response.setHeader("Content-Length", resultingImage.length + "");
+			response.setHeader("Content-Length", resultingImage.length + ""); //$NON-NLS-1$ //$NON-NLS-2$
 			writeToResponse(response, resultingImage);
 		} else {
-			getLogger().error("There was a problem fetching the image, please check the name!");
+			getLogger().error("There was a problem fetching the image, please check the name!"); //$NON-NLS-1$
 		}
 		
 	}
@@ -126,7 +124,7 @@ public class PlacemarkImageServlet extends JsonPocessorServlet {
 		try {
 			response.getOutputStream().write(fileContents);
 		} catch (final Exception e) {
-			getLogger().error("Error writing reponse body to output stream ", e);
+			getLogger().error("Error writing reponse body to output stream ", e); //$NON-NLS-1$
 		} finally {
 			response.getOutputStream().close();
 		}

@@ -20,6 +20,9 @@
                     <name>programfiles</name>
                     <platforms>all</platforms>
                     <distributionFileList>
+		                 <distributionFile>
+		                    <origin>earth.properties_initial</origin>
+		                </distributionFile>
                         <distributionFile>
                             <origin>COLLECT_EARTH_MAIN_FOLDER/collect-earth-app/target/CollectEarth.jar</origin>
                         </distributionFile>
@@ -32,19 +35,37 @@
                         <distributionDirectory>
                             <origin>COLLECT_EARTH_MAIN_FOLDER/collect-earth-app/resources</origin>
                         </distributionDirectory>
+                        <distributionFile>
+		                    <origin>COLLECT_EARTH_MAIN_FOLDER/collect-earth-app/UserManual.pdf</origin>
+		                </distributionFile>
                     </distributionFileList>
                 </folder>
             </folderList>
         </component>
     </componentList>
 
-    <initializationActionList>
+        <initializationActionList>
         <registryGet>
             <key>HKEY_LOCAL_MACHINE\SOFTWARE\${project.vendor}\${project.fullName}</key>
             <name>InstallationPath</name>
             <variable>installdir</variable>
         </registryGet>
+        <actionGroup>
+            <actionList>
+            	<setInstallerVariable name="installdir" value=""/>
+                <iniFileGet>
+                    <file>~/.${project.vendor}-${project.fullName}.ini</file>
+                    <key>InstallationPath</key>
+                    <section>details</section>
+                    <variable>installdir</variable>
+                </iniFileGet>
+            </actionList>
+            <ruleList>
+                <fileTest condition="exists" path="~/.${project.vendor}-${project.fullName}.ini"/>
+            </ruleList>
+        </actionGroup>
     </initializationActionList>
+    
     <compressionAlgorithm>zip</compressionAlgorithm>
     <defaultUnixDirectoryPermissions>777</defaultUnixDirectoryPermissions>
     <defaultUnixFilePermissions>777</defaultUnixFilePermissions>

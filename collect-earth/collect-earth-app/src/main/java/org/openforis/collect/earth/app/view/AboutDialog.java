@@ -11,17 +11,15 @@ import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Properties;
-import java.util.concurrent.ExecutionException;
 
 import javax.swing.Box;
 import javax.swing.JButton;
 import javax.swing.JDialog;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
-import javax.swing.JOptionPane;
 import javax.swing.JPanel;
-import javax.swing.SwingWorker;
 
+import org.openforis.collect.earth.app.service.UpdateIniUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,10 +31,13 @@ public class AboutDialog extends JDialog {
 	public AboutDialog(JFrame parent, String title) {
 		super(parent, title, true);
 
+		UpdateIniUtils updateIniUtils = new UpdateIniUtils();
+		String buildDate = updateIniUtils.convertToDate(getBuild());
+		
 	    Box b = Box.createVerticalBox();
 	    b.setAlignmentX(CENTER_ALIGNMENT);
 	    b.add(Box.createGlue());
-	    b.add(new JLabel("Collect Earth v. " + getVersion() + " ( built " + getBuild() + ") ")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+	    b.add(new JLabel("Collect Earth v. " + getVersion() + " ( built " + buildDate + ") ")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
 	    b.add(new JLabel("By Open Foris Initiative")); //$NON-NLS-1$
 	    JLabel comp = new JLabel("<html>" + Messages.getString("AboutDialog.5") + "</html>"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
 	    if (isBrowsingSupported()) {
@@ -122,40 +123,6 @@ public class AboutDialog extends JDialog {
 	        } catch (URISyntaxException use) {
 	            throw new AssertionError(use + ": " + l.getText()); //NOI18N //$NON-NLS-1$
 	        }
-	    }
-	}
-
-	private static class LinkRunner extends SwingWorker<Void, Void> {
-
-	    private final URI uri;
-
-	    private LinkRunner(URI u) {
-	        if (u == null) {
-	            throw new NullPointerException();
-	        }
-	        uri = u;
-	    }
-
-	    @Override
-	    protected Void doInBackground() throws Exception {
-	        Desktop desktop = java.awt.Desktop.getDesktop();
-	        desktop.browse(uri);
-	        return null;
-	    }
-
-	    @Override
-	    protected void done() {
-	        try {
-	            get();
-	        } catch (ExecutionException ee) {
-	            handleException(uri, ee);
-	        } catch (InterruptedException ie) {
-	            handleException(uri, ie);
-	        }
-	    }
-
-	    private static void handleException(URI u, Exception e) {
-	        JOptionPane.showMessageDialog(null, Messages.getString("AboutDialog.6"), Messages.getString("AboutDialog.19"), JOptionPane.ERROR_MESSAGE); //$NON-NLS-1$ //$NON-NLS-2$
 	    }
 	}
 

@@ -11,7 +11,6 @@ import java.util.Enumeration;
 import java.util.Properties;
 import java.util.TreeSet;
 
-import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
 
 import org.apache.commons.lang3.StringUtils;
@@ -53,7 +52,8 @@ public class LocalPropertiesService {
 				"db_host"), DB_PORT("db_port"), UI_LANGUAGE("ui_language"), LAST_USED_FOLDER("last_used_folder"), LAST_EXPORTED_DATE("last_exported_survey_date"), OPEN_GEE_PLAYGROUND("open_gee_playground"), OPEN_BING_MAPS("open_bing_maps"), OPEN_EARTH_ENGINE(
 						"open_earth_engine"), OPEN_TIMELAPSE("open_timelapse"),DISTANCE_BETWEEN_SAMPLE_POINTS("distance_between_sample_points"), DISTANCE_TO_PLOT_BOUNDARIES(
 								"distance_to_plot_boundaries"), INNER_SUBPLOT_SIDE("inner_point_side"), SAMPLE_SHAPE("sample_shape"),  SURVEY_NAME("survey_name"), GEE_PLAYGROUND_URL("gee_playground_url"), NUMBER_OF_SAMPLING_POINTS_IN_PLOT(
-								"number_of_sampling_points_in_plot"), LOADED_PROJECTS("loaded_projects"), ACTIVE_PROJECT_DEFINITION("active_project_definition"), LAST_IGNORED_UPDATE("last_ignored_update_version");
+								"number_of_sampling_points_in_plot"), LOADED_PROJECTS("loaded_projects"), ACTIVE_PROJECT_DEFINITION("active_project_definition"), LAST_IGNORED_UPDATE("last_ignored_update_version"), OPEN_HERE_MAPS("open_here_maps"), 
+								HERE_MAPS_APP_CODE("here_app_code"), HERE_MAPS_APP_ID("here_app_id"), BING_MAPS_KEY("bing_maps_key");
 
 
 		private String name;
@@ -75,7 +75,11 @@ public class LocalPropertiesService {
 	private static final String PROPERTIES_FILE_PATH = FolderFinder.getLocalFolder() + File.separator + "earth.properties";
 
 	public LocalPropertiesService() {
-
+		try {
+			init();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
 	}
 
 	public String getBalloonFile() {
@@ -222,8 +226,9 @@ public class LocalPropertiesService {
 		return value;
 	}
 
-	@PostConstruct
-	public void init() throws IOException {
+	
+	
+	private void init() throws IOException {
 		properties = new Properties() {
 			/**
 			 * 
@@ -238,8 +243,9 @@ public class LocalPropertiesService {
 		};
 
 		FileReader fr = null;
-		boolean removeInitialFile =false;
-		File propertiesFileInitial = null;
+		boolean newInstallation = false;
+		
+		File propertiesFileInitial = new File(PROPERTIES_FILE_PATH_INITIAL);
 		logger = LoggerFactory.getLogger(LocalPropertiesService.class);
 		try {
 			
@@ -251,18 +257,37 @@ public class LocalPropertiesService {
 					if (!success) {
 						throw new IOException("Could not create file " + propertiesFile.getAbsolutePath());
 					}
-				}
+				}				
 				
-				propertiesFileInitial = new File(PROPERTIES_FILE_PATH_INITIAL);
-				if( propertiesFileInitial.exists() ){
-					removeInitialFile = true;
-					propertiesFile = propertiesFileInitial;
-				}
-				
+				propertiesFile = propertiesFileInitial;
+				newInstallation = true;
+								
 			}
 			
 			fr = new FileReader(propertiesFile);
-			properties.load(fr);			
+			properties.load(fr);		
+			
+			
+			if( !newInstallation ){
+				
+				// Add properties in initial_properties that are not present in earth.properites so that adding new properties in coming version does not generate issues with older versions
+				if( propertiesFileInitial.exists() ){
+					Properties initialProperties = new Properties();
+					initialProperties.load( new FileReader( propertiesFileInitial ) );
+					
+					Enumeration<String> initialPropertyNames = (Enumeration<String>) initialProperties.propertyNames();
+					while( initialPropertyNames.hasMoreElements()){
+						String nextElement = initialPropertyNames.nextElement();
+						if( properties.get( nextElement ) == null  ){
+							properties.put( nextElement, initialProperties.getProperty(nextElement));
+						}
+					}
+				
+					
+				}
+				
+				
+			}
 			
 		} catch (final FileNotFoundException e) {
 			logger.error("Could not find properties file", e);
@@ -272,9 +297,6 @@ public class LocalPropertiesService {
 			if (fr != null) {
 				fr.close();
 			}
-			/*if( removeInitialFile ){
-				propertiesFileInitial.deleteOnExit();
-			}*/
 		}
 	}
 
@@ -395,8 +417,11 @@ public class LocalPropertiesService {
 	private synchronized void storeProperties() {
 		FileWriter fw = null;
 		try {
-			fw = new FileWriter(new File(PROPERTIES_FILE_PATH));
+			
+			File propertiesFile = new File(PROPERTIES_FILE_PATH);
+			fw = new FileWriter(propertiesFile);
 			properties.store(fw, null);
+			
 		} catch (final IOException e) {
 			logger.error("The properties could not be saved", e);
 		} finally {
@@ -443,6 +468,10 @@ public class LocalPropertiesService {
 	public boolean isTimelapseSupported() {
 		return isPropertySupported(EarthProperty.OPEN_TIMELAPSE);
 	}
+	
+	public boolean isHereMapsSupported() {
+		return isPropertySupported(EarthProperty.OPEN_HERE_MAPS);
+	}
 
 	
 	public void setSampleShape(SAMPLE_SHAPE shape) {
@@ -463,5 +492,7 @@ public class LocalPropertiesService {
 		final File metadataFile = new File(getImdFile() );
 		return metadataFile.getParent();
 	}
+
+	
 
 }
