@@ -4,12 +4,14 @@ import java.awt.Color;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
+import java.awt.Window;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.File;
 import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
 import java.net.MalformedURLException;
 import java.util.ArrayList;
 import java.util.List;
@@ -36,6 +38,7 @@ import javax.swing.WindowConstants;
 import javax.swing.border.Border;
 
 import org.apache.commons.lang3.StringUtils;
+import org.openforis.collect.earth.app.CollectEarthUtils;
 import org.openforis.collect.earth.app.EarthConstants.OperationMode;
 import org.openforis.collect.earth.app.EarthConstants.UI_LANGUAGE;
 import org.openforis.collect.earth.app.desktop.EarthApp;
@@ -49,7 +52,6 @@ import org.openforis.collect.earth.app.service.KmlImportService;
 import org.openforis.collect.earth.app.service.LocalPropertiesService;
 import org.openforis.collect.earth.app.service.MissingPlotService;
 import org.openforis.collect.earth.app.view.ExportActionListener.RecordsToExport;
-import org.openforis.collect.manager.RecordManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -62,16 +64,13 @@ import org.springframework.stereotype.Component;
  */
 @Component
 @Lazy(false)
-public class CollectEarthWindow {
+public class CollectEarthWindow{
 
 	@Autowired
 	private LocalPropertiesService localPropertiesService;
 
 	@Autowired
 	private DataImportExportService dataImportExportService;
-
-	@Autowired
-	private RecordManager recordManager;
 
 	@Autowired
 	private EarthSurveyService earthSurveyService;
@@ -90,12 +89,15 @@ public class CollectEarthWindow {
 	
 	@Autowired
 	private MissingPlotService missingPlotService;
-
-	public static void endWaiting(JFrame frame) {
+	
+	@Autowired
+	private CollectEarthTransferHandler collectEarthTransferHandler;
+	
+	public static void endWaiting(Window frame) {
 		frame.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.DEFAULT_CURSOR));
 	}
 
-	public static void startWaiting(JFrame frame) {
+	public static void startWaiting(Window frame) {
 		frame.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.WAIT_CURSOR));
 	}
 
@@ -109,10 +111,10 @@ public class CollectEarthWindow {
 	
 
 	public CollectEarthWindow() throws IOException {
-
 		// Create and set up the window.
-		setFrame(new JFrame(Messages.getString("CollectEarthWindow.19"))); //$NON-NLS-1$
-
+		JFrame framePriv = new JFrame(Messages.getString("CollectEarthWindow.19") );//$NON-NLS-1$
+	
+		setFrame(framePriv ); 
 	}
 
 	@PostConstruct
@@ -122,7 +124,9 @@ public class CollectEarthWindow {
 			@Override
 			public void run() {
 				try {			
+					
 					CollectEarthWindow.this.openWindow();
+					
 				} catch (final Exception e) {
 					logger.error("Cannot start Earth App", e); //$NON-NLS-1$
 					System.exit(0);
@@ -132,8 +136,14 @@ public class CollectEarthWindow {
 	}
 
 	@PreDestroy
-	public void cleanUp(){
-		this.frame.dispose();
+	public void cleanUp() throws InvocationTargetException, InterruptedException{
+		SwingUtilities.invokeAndWait( new Runnable() {
+			
+			@Override
+			public void run() {
+				CollectEarthWindow.this.getFrame().dispose();
+			}
+		});
 	}
 
 	private void addImportExportMenu(JMenu menu) {
@@ -154,11 +164,23 @@ public class CollectEarthWindow {
 		exportModifiedRecords.addActionListener(getExportActionListener(DataFormat.ZIP_WITH_XML, RecordsToExport.MODIFIED_SINCE_LAST_EXPORT));
 		xmlExportSubmenu.add(exportModifiedRecords);
 
-		final JMenuItem exportDataRangeRecords = new JMenuItem("Export data to XML (from specific date)"); //$NON-NLS-1$
+		final JMenuItem exportDataRangeRecords = new JMenuItem("Export data to XML (from specific date)");
 		exportDataRangeRecords.addActionListener(getExportActionListener(DataFormat.ZIP_WITH_XML, RecordsToExport.PICK_FROM_DATE));
 		xmlExportSubmenu.add(exportDataRangeRecords);
-
+		
 		ieSubmenu.add(xmlExportSubmenu);
+		
+		final JMenu backupExportSubmenu = new JMenu("Export to Collect Backup");
+		
+		final JMenuItem exportDataBackup = new JMenuItem("Export data as Collect backup (all data)");
+		exportDataBackup.addActionListener(getExportActionListener(DataFormat.COLLECT_BACKUP, RecordsToExport.ALL));
+		backupExportSubmenu.add(exportDataBackup);
+		
+		final JMenuItem exportDataRangeBackup = new JMenuItem("Export data as Collect backup (from date)");
+		exportDataRangeBackup.addActionListener(getExportActionListener(DataFormat.COLLECT_BACKUP, RecordsToExport.PICK_FROM_DATE));
+		backupExportSubmenu.add(exportDataRangeBackup);
+		
+		ieSubmenu.add( backupExportSubmenu );
 
 		menuItem = new JMenuItem(Messages.getString("CollectEarthWindow.6")); //$NON-NLS-1$
 		menuItem.addActionListener(getExportActionListener(DataFormat.FUSION, RecordsToExport.ALL));
@@ -239,7 +261,7 @@ public class CollectEarthWindow {
 		return new ActionListener() {
 			@Override
 			public void actionPerformed(ActionEvent e) {
-				frame.dispatchEvent(new WindowEvent(frame, WindowEvent.WINDOW_CLOSING));
+				getFrame().dispatchEvent(new WindowEvent(getFrame(), WindowEvent.WINDOW_CLOSING));
 			}
 		};
 	}
@@ -247,12 +269,16 @@ public class CollectEarthWindow {
 
 	private String getDisclaimerFilePath() {
 		final String suffix_lang = localPropertiesService.getUiLanguage().getLocale().getLanguage();
-		return "resources/disclaimer_" + suffix_lang + ".txt"; //$NON-NLS-1$ //$NON-NLS-2$
+		if (new File( "resources/disclaimer_" + suffix_lang + ".txt" ).exists() ){ //$NON-NLS-1$ //$NON-NLS-2$
+			return "resources/disclaimer_" + suffix_lang + ".txt";
+		}else{
+			return  "resources/disclaimer_en.txt";
+		}
 	}
 
 
 	private ActionListener getExportActionListener(final DataFormat exportFormat, final RecordsToExport xmlExportType) {
-		return new ExportActionListener(exportFormat, xmlExportType, frame, localPropertiesService, dataImportExportService,
+		return new ExportActionListener(exportFormat, xmlExportType, getFrame(), localPropertiesService, dataImportExportService,
 				earthSurveyService);
 	}
 
@@ -261,7 +287,7 @@ public class CollectEarthWindow {
 	}
 
 	private ActionListener getImportActionListener(final DataFormat importFormat) {
-		return new ImportActionListener(importFormat, frame, localPropertiesService, dataImportExportService);
+		return new ImportActionListener(importFormat, getFrame(), localPropertiesService, dataImportExportService);
 	}
 
 	private JMenu getLanguageMenu() {
@@ -272,14 +298,15 @@ public class CollectEarthWindow {
 				try {
 					final String langName = ((JRadioButtonMenuItem) e.getSource()).getName();
 					final UI_LANGUAGE language = UI_LANGUAGE.valueOf(langName);
+					CollectEarthUtils.setFontDependingOnLanguaue(language);
 					localPropertiesService.setUiLanguage(language);
 
 					SwingUtilities.invokeLater( new Thread(){
 						@Override
 						public void run() {
 
-							frame.getContentPane().removeAll();
-							frame.dispose();
+							getFrame().getContentPane().removeAll();
+							getFrame().dispose();
 
 							openWindow();
 						};
@@ -344,22 +371,38 @@ public class CollectEarthWindow {
 
 
 		menuItem = new JMenuItem(Messages.getString("CollectEarthWindow.54")); //$NON-NLS-1$
-		menuItem.addActionListener( new ApplyOptionChangesListener(this.frame, localPropertiesService) {
+		menuItem.addActionListener( new ApplyOptionChangesListener(this.getFrame(), localPropertiesService) {
 
 			@Override
 			protected void applyProperties() {
 
 				try {
-					if( kmlImportService.loadFromKml( CollectEarthWindow.this.frame) ){
+					if( kmlImportService.prompToOpenKml( CollectEarthWindow.this.getFrame()) ){
 						restartEarth();
 					}
 				} catch (Exception e1) {
-					JOptionPane.showMessageDialog( CollectEarthWindow.this.frame, e1.getMessage(), Messages.getString("CollectEarthWindow.63"), JOptionPane.ERROR_MESSAGE); //$NON-NLS-1$
+					JOptionPane.showMessageDialog( CollectEarthWindow.this.getFrame(), e1.getMessage(), Messages.getString("CollectEarthWindow.63"), JOptionPane.ERROR_MESSAGE); //$NON-NLS-1$
 					logger.error("Error importing KML file", e1); //$NON-NLS-1$
 				}
 
 			}
 
+		});
+		serverMenuItems.add(menuItem); // This menu should only be shown if the DB is local ( not if Collect Earth is acting as a client )
+		toolsMenu.add(menuItem);
+		
+		menuItem = new JMenuItem("Open data folder"); //$NON-NLS-1$
+		menuItem.addActionListener( new ActionListener() {
+			
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				try {
+					CollectEarthUtils.openFolderInExplorer(FolderFinder.getAppDataFolder() );
+				} catch (IOException e1) {
+					logger.error("Could not findthe data folder", e1 );
+				}
+				
+			}
 		});
 		serverMenuItems.add(menuItem); // This menu should only be shown if the DB is local ( not if Collect Earth is acting as a client )
 		toolsMenu.add(menuItem);
@@ -429,7 +472,7 @@ public class CollectEarthWindow {
 
 			@Override
 			public void actionPerformed(ActionEvent e) {
-				final JDialog dialog = new OptionWizard(owner, localPropertiesService, earthProjectsService, backupSqlLiteService.getBackUpFolder().getAbsolutePath(), analysisSaikuService);
+				final JDialog dialog = new OptionWizard(owner, localPropertiesService, earthProjectsService, backupSqlLiteService.getAutomaticBackUpFolder().getPath(), analysisSaikuService);
 				dialog.setVisible(true);
 				dialog.pack();
 			}
@@ -439,12 +482,12 @@ public class CollectEarthWindow {
 
 
 	private ActionListener getSaikuAnalysisActionListener() {
-		return new SaikuAnalysisListener(frame, getSaikuStarter());
+		return new SaikuAnalysisListener(getFrame(), getSaikuStarter());
 	}
 
 
 	private SaikuStarter getSaikuStarter() {
-		return new SaikuStarter(analysisSaikuService, frame);
+		return new SaikuStarter(analysisSaikuService, getFrame());
 
 	}
 
@@ -456,9 +499,13 @@ public class CollectEarthWindow {
 
 	private void initializePanel() {
 		final JPanel pane = new JPanel(new GridBagLayout());
+		
 		final Border raisedetched = BorderFactory.createRaisedBevelBorder();
 		pane.setBorder(raisedetched);
 
+		// Handle Drag and Drop of files into the panel
+		pane.setTransferHandler( collectEarthTransferHandler );
+		
 		final GridBagConstraints c = new GridBagConstraints();
 
 		final JTextField operatorTextField = new JTextField(getOperator(), 30);
@@ -517,7 +564,8 @@ public class CollectEarthWindow {
 
 			}
 		});
-
+		
+		
 	}
 
 	private void initializeWindow() {
@@ -548,12 +596,27 @@ public class CollectEarthWindow {
 			JOptionPane.showMessageDialog(getFrame(), Messages.getString("CollectEarthWindow.35"), //$NON-NLS-1$
 					Messages.getString("CollectEarthWindow.36"), JOptionPane.ERROR_MESSAGE); //$NON-NLS-1$
 		}
+		
+		changeFrameTitle();
+	}
 
+	public void changeFrameTitle() {
+		String name = " - No survey loaded";
+		if( earthSurveyService.getCollectSurvey() != null ){
+			if( !StringUtils.isBlank( earthSurveyService.getCollectSurvey().getProjectName( localPropertiesService.getUiLanguage().getLocale().getLanguage() ) ) ){
+				name =  " - " +earthSurveyService.getCollectSurvey().getProjectName( localPropertiesService.getUiLanguage().getLocale().getLanguage() );
+			}else if( !StringUtils.isBlank( earthSurveyService.getCollectSurvey().getProjectName() ) ){
+				name =  " - " +earthSurveyService.getCollectSurvey().getProjectName();
+			}else{
+				name =  " - " + earthSurveyService.getCollectSurvey().getDescription( localPropertiesService.getUiLanguage().getLocale().getLanguage() );
+			}
+		}
+		getFrame().setTitle( Messages.getString("CollectEarthWindow.19") + name );
 	}
 
 	void setFrame(JFrame frame) {
 		this.frame = frame;
 	}
 
-
+	
 }

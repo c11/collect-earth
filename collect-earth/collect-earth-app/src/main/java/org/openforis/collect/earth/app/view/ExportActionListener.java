@@ -102,6 +102,18 @@ public final class ExportActionListener implements ActionListener {
 		}
 	}
 
+	
+	private boolean promptForLabelInclusion(DataFormat exportType){
+		boolean includeLabels = false;
+		
+		if( exportType.equals( DataFormat.CSV)){
+			int result = JOptionPane.showConfirmDialog(frame, "Include labels for code attributes", "Include labels", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
+			includeLabels = (result == JOptionPane.YES_OPTION);
+		}
+		
+		return includeLabels;
+	}
+	
 	private void startExportingData(DataFormat exportType, Date recordsModifiedSince, File[] exportToFile) {
 		AbstractProcess<Void, DataExportStatus> exportProcess = null ;
 		try {
@@ -120,15 +132,21 @@ public final class ExportActionListener implements ActionListener {
 
 	private AbstractProcess<Void, DataExportStatus> getExportProcess(DataFormat exportType, Date recordsModifiedSince, File[] exportToFile) throws Exception {
 		AbstractProcess<Void, DataExportStatus> exportProcess = null ;
+		boolean addLabels = false;
 		switch (exportType) {
 		case CSV:
-			exportProcess = dataExportService.exportSurveyAsCsv(exportToFile[0]);
+			addLabels = promptForLabelInclusion(exportType);
+			exportProcess = dataExportService.exportSurveyAsCsv(exportToFile[0], addLabels);
 			break;
 		case ZIP_WITH_XML:
 			exportProcess = dataExportService.exportSurveyAsZipWithXml(exportToFile[0], recordsModifiedSince);
 			break;
 		case FUSION:
-			exportProcess = dataExportService.exportSurveyAsFusionTable(exportToFile[0]);
+			addLabels = promptForLabelInclusion(exportType);
+			exportProcess = dataExportService.exportSurveyAsFusionTable(exportToFile[0], addLabels);
+			break;
+		case COLLECT_BACKUP:
+			exportProcess = dataExportService.exportSurveyAsBackup(exportToFile[0]);
 			break;
 		default:
 			break;
@@ -137,11 +155,13 @@ public final class ExportActionListener implements ActionListener {
 	}
 
 	private String getPreselectedName(DataFormat exportType, Date modifiedSince) {
-		String preselectName = "collectDataExport"; //$NON-NLS-1$
+		String preselectName = "collectedData_"; //$NON-NLS-1$
+		preselectName += earthSurveyService.getCollectSurvey().getName();
+		DateFormat dateFormat = new SimpleDateFormat("ddMMyy_HHmmss"); //$NON-NLS-1$
 		if( modifiedSince == null ){
-			preselectName += "_FULL"; //$NON-NLS-1$
+			preselectName += "_on_" + dateFormat.format( new Date() ) ; //$NON-NLS-1$
 		}else{
-			DateFormat dateFormat = new SimpleDateFormat("ddMMyy_HHmmss"); //$NON-NLS-1$
+			
 			preselectName += "_" + dateFormat.format(modifiedSince) + "_to_" + dateFormat.format( new Date() ); //$NON-NLS-1$ //$NON-NLS-2$
 		}
 

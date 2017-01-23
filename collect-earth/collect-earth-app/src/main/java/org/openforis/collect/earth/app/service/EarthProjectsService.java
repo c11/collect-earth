@@ -4,13 +4,13 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
 
-import net.lingala.zip4j.core.ZipFile;
-import net.lingala.zip4j.exception.ZipException;
-
+import org.apache.commons.io.FileUtils;
+import org.apache.commons.io.filefilter.IOFileFilter;
 import org.apache.commons.lang.ArrayUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.openforis.collect.earth.app.CollectEarthUtils;
@@ -21,15 +21,20 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import net.lingala.zip4j.core.ZipFile;
+import net.lingala.zip4j.exception.ZipException;
+
 
 
 @Component
 public class EarthProjectsService {
 
 	
-	private static final int MAX_FOLDER_LENGTH = 20;
+	private static final int OLD_MAX_FOLDER_LENGTH = 20;
+	
+	private static final int NEW_MAX_FOLDER_LENGTH = 255;
 
-	private static final String PROJECT_FILE_NAME = "project_definition.properties"; //$NON-NLS-1$
+	private static final String PROJECT_PROPERTIES_FILE_NAME = "project_definition.properties"; //$NON-NLS-1$
 
 	private static final String PROJECTS = "projects"; //$NON-NLS-1$
 	
@@ -113,10 +118,10 @@ public class EarthProjectsService {
 	 * Loads the contents of the project-specific properties into earth.properties
 	 * 
 	 * @param projectFolder The folder where the project definition and the rest of the files reside.
-	 * @return True is the project was loaded corretlt
-	 * @throws IOException If the projct folder or one of its files cannot be found
+	 * @return True is the project was loaded correctly
+	 * @throws IOException If the project folder or one of its files cannot be found
 	 */
-	public boolean loadProjectInFolder(File projectFolder ) throws IOException{
+	public boolean loadProjectInFolder(File projectFolder) throws IOException{
 		
 		File projectPropertiesFile = getProjectPropertiesFile( projectFolder );
 		
@@ -124,11 +129,14 @@ public class EarthProjectsService {
 		
 		// Change the loaded project only if the project definition file has changed or the user changes project
 		if( 
-				!getProjectDefinitionMD5().equals( CollectEarthUtils.getMd5FromFile( getProjectPropertiesFile(projectFolder)) ) 
+				!getProjectDefinitionMD5().equals( CollectEarthUtils.getMd5FromFolder( projectFolder ) ) 
 					&&
 				validateProjectDefinitionFile(projectPropertiesFile) 
 		){
-		
+
+			// Remove the version of the survey used so that it is asked again to the user!
+			localPropertiesService.removeModelVersionName();
+			
 			Properties projectProperties = getProjectProperties( projectPropertiesFile );
 			
 			applyPropertiesToCollectEarth( projectProperties, projectFolder );
@@ -136,6 +144,8 @@ public class EarthProjectsService {
 			addToProjectList(projectFolder);
 			
 			setProjectDefinitionMD5(projectFolder);
+			
+			moveSaikuQueriesToRepository(projectFolder, (String) projectProperties.get("survey_name") );
 			
 			success = true;
 		}
@@ -145,8 +155,43 @@ public class EarthProjectsService {
 	}
 
 
+	private void moveSaikuQueriesToRepository(File projectFolder, String surveyName) {
+
+		try {
+			Collection<File> saikuFiles = getSaikuFiles( projectFolder );
+			
+			String repoDirectory = "tomcat/webapps/saiku/WEB-INF/classes/saiku-repository";	
+			File saikuRepo = new File( localPropertiesService.getSaikuFolder() + File.separator + repoDirectory  + File.separator + surveyName );
+			
+			for (File saikuFile : saikuFiles) {
+				FileUtils.copyFileToDirectory(saikuFile, saikuRepo, true);
+			}
+		} catch (IOException e) {
+			logger.error("Error moving the Saiku files", e);
+		}
+
+		
+		
+	}
+
+	private Collection<File> getSaikuFiles(File projectFolder) {
+		return FileUtils.listFiles(projectFolder, new IOFileFilter() {
+			
+			@Override
+			public boolean accept(File dir, String name) {
+				return name.endsWith("saiku");
+			}
+			
+			@Override
+			public boolean accept(File file) {
+				
+				return file.getName().endsWith("saiku");
+			}
+		}, null);
+	}
+
 	private void setProjectDefinitionMD5(File projectFolder) throws IOException {
-		localPropertiesService.setValue( EarthProperty.ACTIVE_PROJECT_DEFINITION, CollectEarthUtils.getMd5FromFile( getProjectPropertiesFile(projectFolder)) );
+		localPropertiesService.setValue( EarthProperty.ACTIVE_PROJECT_DEFINITION, CollectEarthUtils.getMd5FromFolder( projectFolder ) );
 	}
 	
 	private String getProjectDefinitionMD5() {
@@ -155,9 +200,12 @@ public class EarthProjectsService {
 	
 
 	public File getProjectPropertiesFile(File projectFolder) {
-		return new File( projectFolder.getAbsolutePath() + File.separator + PROJECT_FILE_NAME );
+		return new File( projectFolder.getAbsolutePath() + File.separator + PROJECT_PROPERTIES_FILE_NAME );
 	}
 
+	public File getSurveyStructureFile(File projectFolder) {
+		return new File( projectFolder.getAbsolutePath() + File.separator + PROJECT_PROPERTIES_FILE_NAME );
+	}
 
 	private void applyPropertiesToCollectEarth(Properties projectProperties, File projectFolder) {
 
@@ -229,28 +277,43 @@ public class EarthProjectsService {
 	
 	public boolean loadCompressedProjectFile( File projectZipFile ) throws IllegalArgumentException, IOException, ZipException{
 				
-		File unzippedFolder = unzipContents(projectZipFile);
-		return loadProjectInFolder(unzippedFolder);
+		File unzippedFolder = unzipContentsOnProjectFolder(projectZipFile);
+		return( loadProjectInFolder(unzippedFolder) );
 	}
 
 
-	private File unzipContents(File projectZipFile) throws ZipException, IOException {
-		String projectName = getProjectName( projectZipFile );
-		return unzipContents(projectZipFile, projectName);
+	private File unzipContentsOnProjectFolder(File projectZipFile) throws ZipException, IOException {
+		String projectFolderName = "" ;
+		// There was an error in the first versions of Collect Earth that limited the folder names to 20 characters
+		// Newer version support u to 255 but we need to take in consideration backwards compatibility!
+		if ( oldFormatFolderExists( projectZipFile ) ){
+			// If there was already a project with the older format of the name then use that!
+			projectFolderName = getProjectFolderName( projectZipFile , OLD_MAX_FOLDER_LENGTH );
+		}else{
+			projectFolderName = getProjectFolderName( projectZipFile , NEW_MAX_FOLDER_LENGTH );
+		}		
+		
+		return unzipContents(projectZipFile, projectFolderName);
 	}
 	
 
-	private String getProjectName(File projectZipFile) throws ZipException, IOException {
+	private boolean oldFormatFolderExists(File projectZipFile) throws ZipException, IOException {
+		String oldProjectFolderName = getProjectFolderName( projectZipFile , OLD_MAX_FOLDER_LENGTH );
+		File oldProjectFolder = new File( getProjectsFolder() + File.separator  + oldProjectFolderName );
+		return oldProjectFolder.exists();
+	}
+
+	private String getProjectFolderName(File projectZipFile, int max_lenght_folder_name) throws ZipException, IOException {
 		ZipFile zipFile = new ZipFile(projectZipFile);
 		File definitionFolder = new File(EarthConstants.GENERATED_FOLDER);
 		//FileHeader fileHeader = zipFile.getFileHeader(PROJECT_FILE_NAME);
-		zipFile.extractFile( PROJECT_FILE_NAME, definitionFolder.getAbsolutePath() );		
-		String projectName =  getProjectSurveyName(new File( definitionFolder + File.separator + PROJECT_FILE_NAME) );
+		zipFile.extractFile( PROJECT_PROPERTIES_FILE_NAME, definitionFolder.getAbsolutePath() );		
+		String projectName =  getProjectSurveyName(new File( definitionFolder + File.separator + PROJECT_PROPERTIES_FILE_NAME) );
 		
 		projectName = StringUtils.remove(projectName, " "); //$NON-NLS-1$
 		
-		if( projectName.length() > MAX_FOLDER_LENGTH ){
-			projectName = projectName.substring(0, MAX_FOLDER_LENGTH);
+		if( projectName.length() > max_lenght_folder_name ){
+			projectName = projectName.substring(0, max_lenght_folder_name);
 		}
 		
 		return projectName;

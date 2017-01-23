@@ -1,10 +1,13 @@
 package org.openforis.collect.earth.app.service;
 
+import java.io.BufferedInputStream;
 import java.io.BufferedWriter;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.FileReader;
-import java.io.FileWriter;
 import java.io.IOException;
+import java.io.OutputStreamWriter;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -19,6 +22,8 @@ import org.openforis.collect.earth.app.service.LocalPropertiesService.EarthPrope
 import org.openforis.collect.earth.app.view.DataFormat;
 import org.openforis.collect.earth.app.view.JFileChooserExistsAware;
 import org.openforis.collect.earth.app.view.Messages;
+import org.openforis.collect.io.metadata.collectearth.CollectEarthGridTemplateGenerator;
+import org.openforis.collect.io.metadata.collectearth.CollectEarthProjectFileCreator;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.w3c.dom.Document;
@@ -37,6 +42,9 @@ public class KmlImportService {
 	
 	@Autowired
 	EarthProjectsService earthProjectsService;
+	
+	@Autowired
+	EarthSurveyService earthSurveyService;
 
 	private JFrame frame;
 
@@ -73,6 +81,10 @@ public class KmlImportService {
         NodeList placemarks = doc.getElementsByTagName("Placemark"); //$NON-NLS-1$
 
         StringBuilder sb = new StringBuilder();
+        
+        sb.append( CollectEarthProjectFileCreator.PLACEHOLDER_ID_COLUMNS_HEADER ).append(",").append( "YCoordinate" ).append(",").append( "XCoordinate" ).append(CollectEarthProjectFileCreator.PLACEHOLDER_FOR_EXTRA_COLUMNS_HEADER).append( "\r\n"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        
+        
         for (int i = 0; i < placemarks.getLength(); i++) {                
             Node placemark = placemarks.item(i);
 
@@ -84,9 +96,7 @@ public class KmlImportService {
             		
             		Node placemarkChild = childNodes.item(j);
             		
-            		if( placemarkChild.getNodeName().equalsIgnoreCase("name")){ //$NON-NLS-1$
-            			name = placemarkChild.getFirstChild().getNodeValue();
-            		}else if ( placemarkChild.getNodeName().equals("Point")){ //$NON-NLS-1$
+            		if ( placemarkChild.getNodeName().equals("Point")){ //$NON-NLS-1$
             			String coordinates = processPoint(placemarkChild); 
                     	
                     	String[] splitCoords = coordinates.split(","); //$NON-NLS-1$
@@ -112,20 +122,24 @@ public class KmlImportService {
                     
             		}              		
             	}
-            	
-            	String nameFinal = getNamePlacemark(name);
-            	
-            	sb.append( nameFinal ).append(",").append( latitude ).append(",").append( longitude ).append(",0,0,0,0,0,0,0,0\r\n"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            	            	
+            	sb.append( CollectEarthProjectFileCreator.PLACEHOLDER_ID_COLUMNS_VALUES ).append("_").append( i+1 ).append(",").append( latitude ).append(",").append( longitude ).append(CollectEarthProjectFileCreator.PLACEHOLDER_FOR_EXTRA_COLUMNS_VALUES).append( "\r\n"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
             }
         }
         
-        File tempFile = File.createTempFile("kmlExtractedPoints", "csv"); //$NON-NLS-1$ //$NON-NLS-2$
-        FileWriter fw = new FileWriter(tempFile);
-		BufferedWriter bw = new BufferedWriter(fw);
+        File tempFile = File.createTempFile("kmlExtractedPointsTemplate", "csv"); //$NON-NLS-1$ //$NON-NLS-2$
+        
+        OutputStreamWriter osw = new OutputStreamWriter(  new FileOutputStream( tempFile ), "UTF-8" );
+
+		BufferedWriter bw = new BufferedWriter(osw);
 		bw.write(sb.toString());
 		bw.close();
         
-        return tempFile;
+		
+		BufferedInputStream bis = new BufferedInputStream( new FileInputStream(tempFile) );
+		
+		CollectEarthGridTemplateGenerator generator = new CollectEarthGridTemplateGenerator();
+		return generator.generateTemplateCSVFile(earthSurveyService.getCollectSurvey(), bis);
 
 	}
 
@@ -152,12 +166,21 @@ public class KmlImportService {
 		return coordinates;
 	}
 
-	public boolean loadFromKml( JFrame frame) throws ParserConfigurationException, SAXException, IOException{
+	public boolean prompToOpenKml( JFrame frame) throws ParserConfigurationException, SAXException, IOException{
 		this.frame = frame;
 		// Choose the file in the file system
 		File kmlFile = chooseKmlFile();
 		boolean kmlImported = false;
 		if( kmlFile != null ){
+			kmlImported = loadFromKml(frame, kmlFile);
+		}
+		
+		return kmlImported;
+	}
+	
+	
+	public boolean loadFromKml( JFrame frame, File kmlFile) throws ParserConfigurationException, SAXException, IOException{
+
 			// Convert the KML into a CSV and save it into a temporary file
 			File convertedCsvFile = createTempCsv( kmlFile );
 
@@ -167,12 +190,14 @@ public class KmlImportService {
 			//File finalCsvFile = moveCsvToProjectFolder(convertedCsvFile, kmlFile.getName());
 			File finalCsvFile = selectAndSaveToCsv(convertedCsvFile, kmlFile.getName());
 
-			// Load the plots from the CSV 
-			localPropertiesService.setValue(EarthProperty.CSV_KEY, finalCsvFile.getAbsolutePath());
-			kmlImported = true;
-		}
-		
-		return kmlImported;
+			boolean loaded = false;
+			if( finalCsvFile != null ){
+				// Load the plots from the CSV 
+				localPropertiesService.setValue(EarthProperty.SAMPLE_FILE, finalCsvFile.getAbsolutePath());
+				loaded = true;
+			}
+			
+			return loaded;
 	}
 
 	private File selectAndSaveToCsv(File convertedCsvFile, String name) throws IOException {

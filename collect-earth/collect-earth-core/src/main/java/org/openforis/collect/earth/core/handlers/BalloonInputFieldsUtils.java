@@ -2,8 +2,11 @@ package org.openforis.collect.earth.core.handlers;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -23,6 +26,8 @@ import org.openforis.idm.metamodel.CodeList;
 import org.openforis.idm.metamodel.CodeListItem;
 import org.openforis.idm.metamodel.CodeListService;
 import org.openforis.idm.metamodel.EntityDefinition;
+import org.openforis.idm.metamodel.EntityDefinition.TraversalType;
+import org.openforis.idm.metamodel.ModelVersion;
 import org.openforis.idm.metamodel.NodeDefinition;
 import org.openforis.idm.metamodel.NodeDefinitionVisitor;
 import org.openforis.idm.model.Attribute;
@@ -61,10 +66,12 @@ public class BalloonInputFieldsUtils {
 			new RealAttributeHandler(),
 			new TextAttributeHandler(),
 			new TimeAttributeHandler()
-		);
-	
-	public Map<String, PlacemarkInputFieldInfo> extractFieldInfoByParameterName(CollectRecord record, String language) {
-		Map<String, String> htmlParameterNameByNodePath = getHtmlParameterNameByNodePath(record);
+			);
+
+	public Map<String, PlacemarkInputFieldInfo> extractFieldInfoByParameterName(CollectRecord record,
+			NodeChangeSet changeSet, String language, String modelVersionName) {
+		Collection<AttributeDefinition> changedDefs = extractChangedAttributeDefinitions(record, changeSet);
+		Map<String, String> htmlParameterNameByNodePath = generateAttributeHtmlParameterNameByNodePath(changedDefs);
 		Set<String> parameterNames = new HashSet<String>(htmlParameterNameByNodePath.values());
 		Map<String, String> validationMessageByPath = generateValidationMessages(record);
 		Entity rootEntity = record.getRootEntity();
@@ -81,24 +88,49 @@ public class BalloonInputFieldsUtils {
 				AbstractAttributeHandler<?> childHandler = findHandler(childAttributeParameterName);
 				PlacemarkInputFieldInfo info = generateAttributeFieldInfo(
 						record, validationMessageByPath, currentEntity, childAttributeParameterName,
-						childHandler, language);
+						childHandler, language, modelVersionName);
 				result.put(parameterName, info);
 			} else {
 				PlacemarkInputFieldInfo info = generateAttributeFieldInfo(
 						record, validationMessageByPath, rootEntity, cleanName,
-						handler, language);
+						handler, language, modelVersionName);
 				result.put(parameterName, info);
 			}
 		}
 		return result;
 	}
 
+	private Set<AttributeDefinition> extractChangedAttributeDefinitions(CollectRecord record,
+			NodeChangeSet changeSet) {
+		if (changeSet == null) {
+			return extractAttributeDefinitions(record);
+		} else {
+			Set<AttributeDefinition> changedDefs = new HashSet<AttributeDefinition>();
+			Set<Node<?>> changedNodes = changeSet.getChangedNodes();
+			for (Node<?> node : changedNodes) {
+				if (node instanceof Attribute) {
+					changedDefs.add((AttributeDefinition) node.getDefinition());
+				}
+			}
+			Set<CodeAttributeDefinition> relatedParentCodeDefs = new HashSet<CodeAttributeDefinition>();
+			for (AttributeDefinition changedDef : changedDefs) {
+				if (changedDef instanceof CodeAttributeDefinition) {
+					relatedParentCodeDefs.addAll(((CodeAttributeDefinition) changedDef).getAncestorCodeAttributeDefinitions());
+				}
+			}
+			changedDefs.addAll(relatedParentCodeDefs);
+			return changedDefs;
+		}
+	}
+
 	private PlacemarkInputFieldInfo generateAttributeFieldInfo(
 			CollectRecord record, Map<String, String> validationMessageByPath,
 			Entity rootEntity, String cleanName,
-			AbstractAttributeHandler<?> handler, String language) {
+			AbstractAttributeHandler<?> handler, String language, String modelVersionName) {
+		
 		PlacemarkInputFieldInfo info = new PlacemarkInputFieldInfo();
 
+		ModelVersion recordVersion = record.getSurvey().getVersion( modelVersionName );
 		List<Attribute<?, ?>> attributes = handler.getAttributeNodesFromParameter(cleanName, rootEntity);
 		Attribute<?, ?> firstAttribute = attributes.get(0);
 
@@ -106,9 +138,9 @@ public class BalloonInputFieldsUtils {
 
 		info.setValue(value);
 		info.setVisible(firstAttribute.isRelevant());
-		
+
 		String errorMessage = validationMessageByPath.get(firstAttribute.getPath());
-		if (errorMessage != null) {
+		if (errorMessage != null && firstAttribute.isRelevant()) {
 			info.setInError(true);
 			info.setErrorMessage(errorMessage);
 		}
@@ -116,19 +148,35 @@ public class BalloonInputFieldsUtils {
 			CodeAttributeDefinition attrDef = (CodeAttributeDefinition) firstAttribute.getDefinition();
 			CodeListService codeListService = record.getSurveyContext().getCodeListService();
 			List<CodeListItem> validCodeListItems = codeListService.loadValidItems(firstAttribute.getParent(), attrDef);
+			
 			CodeListItem selectedCodeListItem = getCodeListItem(validCodeListItems, value);
 			info.setCodeItemId(selectedCodeListItem == null ? null: selectedCodeListItem.getId());
 			List<PlacemarkCodedItem> possibleCodedItems = new ArrayList<PlacemarkCodedItem>(validCodeListItems.size() + 1);
 			possibleCodedItems.add(new PlacemarkCodedItem(NOT_APPLICABLE_ITEM_CODE, NOT_APPLICABLE_ITEM_LABEL));
-			for (CodeListItem item : validCodeListItems) {
-				String label = item.getLabel( language );
-				// Tries to get the label for the specified language, if not gets the label for the default language 
-				if( label == null && !language.equals( record.getSurvey().getDefaultLanguage() ) ){
-					label = item.getLabel();
+
+			
+			if( validCodeListItems.isEmpty() ){
+				info.setVisible(false);
+			}else{
+				for (CodeListItem item : validCodeListItems) {
+					// Check that the code list item is available for the current record version
+					if( recordVersion == null 
+							||
+						recordVersion.isApplicable( item ) 
+					){ //If the item is used on the current version used
+						String label = item.getLabel( language );
+						// Tries to get the label for the specified language, if not gets the label for the default language 
+						if( label == null && !language.equals( record.getSurvey().getDefaultLanguage() ) ){
+							label = item.getLabel();
+						}
+						possibleCodedItems.add(new PlacemarkCodedItem(item.getCode(), label));
+					}
 				}
-				possibleCodedItems.add(new PlacemarkCodedItem(item.getCode(), label));
 			}
+			
 			info.setPossibleCodedItems(possibleCodedItems);
+
+			
 		}
 		return info;
 	}
@@ -151,7 +199,7 @@ public class BalloonInputFieldsUtils {
 		}
 		return validationMessageByPath;
 	}
-	
+
 	private AbstractAttributeHandler<?> findHandler(String cleanParameterName) {
 		for (AbstractAttributeHandler<?> handler : handlers) {
 			if (handler.isParameterParseable(cleanParameterName)) {
@@ -175,38 +223,23 @@ public class BalloonInputFieldsUtils {
 		logger.warn("Handler not found for the given node type: " + def.getClass().getName());
 		return null;
 	}
-	
+
 	private String cleanUpParameterName(String parameterName) {
 		String cleanParameter = removeArraySuffix(parameterName);
 		cleanParameter = removePrefix(cleanParameter);
 		return cleanParameter;
 	}
 
-	public Map<String, String> getValuesByHtmlParameters(Entity plotEntity) {
-		Map<String, String> valuesByHTMLParameterName = new HashMap<String, String>();
-		
-		List<Node<?>> children = plotEntity.getChildren();
+	public Map<String, String> getHtmlParameterNameByNodePath(final EntityDefinition rootEntityDef) {
+		final CodeListService codeListService = rootEntityDef.getSurvey().getContext().getCodeListService();
 
-		for (Node<?> node : children) {
-			getHTMLParameterName(plotEntity, valuesByHTMLParameterName,  node);
-		}
-		return valuesByHTMLParameterName;
-	}
-	
-	public Map<String, String> getHtmlParameterNameByNodePath(CollectRecord record) {
-		return getHtmlParameterNameByNodePath(record.getRootEntity().getDefinition());
-	}
-	
-	public Map<String, String> getHtmlParameterNameByNodePath(final EntityDefinition rootEntity) {
-		final CodeListService codeListService = rootEntity.getSurvey().getContext().getCodeListService();
+		final Map<String, String> result = new LinkedHashMap<String, String>();
 
-		final Map<String, String> result = new HashMap<String, String>();
-		
-		rootEntity.traverse(new NodeDefinitionVisitor() {
+		rootEntityDef.traverse(new NodeDefinitionVisitor() {
 			public void visit(NodeDefinition def) {
 				if (def instanceof AttributeDefinition) {
 					EntityDefinition parentDef = def.getParentEntityDefinition();
-					if (parentDef == rootEntity) {
+					if (parentDef == rootEntityDef) {
 						String collectParamName = getCollectParameterBaseName(def);
 						if( collectParamName != null ){
 							result.put(def.getPath(), collectParamName);
@@ -224,7 +257,7 @@ public class BalloonInputFieldsUtils {
 								for (int i = 0; i < enumeratingItems.size(); i++) {
 									CodeListItem enumeratingItem = enumeratingItems.get(i);
 									String collectParameterBaseName = getCollectParameterBaseName(parentDef) + "[" + enumeratingItem.getCode() + "].";
-									
+
 									for (NodeDefinition childDef : childDefs) {
 										AbstractAttributeHandler<?> childHandler = findHandler(childDef);
 										if( childHandler != null ){
@@ -250,7 +283,91 @@ public class BalloonInputFieldsUtils {
 					}
 				}
 			}
+		}, TraversalType.BFS);
+		return result;
+	}
+	
+	public Map<String, String> getValuesByHtmlParameters(Entity plotEntity) {
+		Map<String, String> valuesByHTMLParameterName = new HashMap<String, String>();
+
+		List<Node<?>> children = plotEntity.getChildren();
+
+		for (Node<?> node : children) {
+			getHTMLParameterName(plotEntity, valuesByHTMLParameterName,  node);
+		}
+		return valuesByHTMLParameterName;
+	}
+	
+	private Set<AttributeDefinition> extractAttributeDefinitions(CollectRecord record) {
+		final Set<AttributeDefinition> result = new LinkedHashSet<AttributeDefinition>();
+
+		record.getRootEntity().getDefinition().traverse(new NodeDefinitionVisitor() {
+			public void visit(NodeDefinition def) {
+				if (def instanceof AttributeDefinition) {
+					result.add((AttributeDefinition) def);
+				}
+			}
 		});
+		return result;
+	}
+
+	private Map<String, String> generateAttributeHtmlParameterNameByNodePath(Collection<AttributeDefinition> defs) {
+		Map<String, String> result = new HashMap<String, String>();
+		for (AttributeDefinition def : defs) {
+			result.putAll(generateAttributeHtmlParameterNameByNodePath(def));
+		}
+		return result;
+	}
+		
+	
+	private Map<String, String> generateAttributeHtmlParameterNameByNodePath(AttributeDefinition def) {
+		CodeListService codeListService = def.getSurvey().getContext().getCodeListService();
+
+		Map<String, String> result = new HashMap<String, String>();
+		
+		EntityDefinition parentDef = def.getParentEntityDefinition();
+		if (parentDef.isRoot()) {
+			String collectParamName = getCollectParameterBaseName(def);
+			if( collectParamName != null ){
+				result.put(def.getPath(), collectParamName);
+			}
+		} else {
+			List<NodeDefinition> childDefs = parentDef.getChildDefinitions();
+			if (parentDef.isMultiple()) {
+				//multiple (enumerated) entity
+				CodeAttributeDefinition keyCodeAttribute = parentDef.getEnumeratingKeyCodeAttribute();
+				if (keyCodeAttribute == null) {
+					throw new IllegalStateException("Enumerating code attribute expected for entity " + parentDef.getPath());
+				} else {
+					CodeList enumeratingList = keyCodeAttribute.getList();
+					List<CodeListItem> enumeratingItems = codeListService.loadRootItems(enumeratingList);
+					for (int i = 0; i < enumeratingItems.size(); i++) {
+						CodeListItem enumeratingItem = enumeratingItems.get(i);
+						String collectParameterBaseName = getCollectParameterBaseName(parentDef) + "[" + enumeratingItem.getCode() + "].";
+
+						for (NodeDefinition childDef : childDefs) {
+							AbstractAttributeHandler<?> childHandler = findHandler(childDef);
+							if( childHandler != null ){
+								String collectParameterName = collectParameterBaseName + childHandler.getPrefix() + childDef.getName();
+								String enumeratingItemPath = parentDef.getPath() + "[" + (i+1) + "]/" + childDef.getName();
+								result.put(enumeratingItemPath, collectParameterName);
+							}
+						}
+					}
+				}
+			} else {
+				//single entity
+				String collectParameterBaseName = getCollectParameterBaseName(parentDef) + ".";
+				for (NodeDefinition childDef : childDefs) {
+					AbstractAttributeHandler<?> childHandler = findHandler(childDef);
+					if( childHandler != null ){
+						String collectParameterName = collectParameterBaseName + childHandler.getPrefix() + childDef.getName();
+						String enumeratingItemPath = parentDef.getPath() + "/" + childDef.getName();
+						result.put(enumeratingItemPath, collectParameterName);
+					}
+				}
+			}
+		}
 		return result;
 	}
 	
@@ -260,7 +377,7 @@ public class BalloonInputFieldsUtils {
 		if( handler != null ){
 			// builds ie. "text_parameter"
 			String paramName = handler.getPrefix() + def.getName();
-	
+
 			// Saves into "collect_text_parameter"
 			return COLLECT_PREFIX + paramName;
 		}else{
@@ -268,19 +385,37 @@ public class BalloonInputFieldsUtils {
 		}
 	}
 
-	protected void getHTMLParameterName(Entity plotEntity, Map<String,String> valuesByHtmlParameterName,
-			Node<?> node) {
+	public String getCollectBalloonParamName(NodeDefinition node){
 		AbstractAttributeHandler<?> handler = findHandler(node);
-		
+
 		if( handler == null ){
-			return;
+			throw new IllegalArgumentException("No handler found for node " + ( node!=null?node.getName():"null node" ) );
 		}
-		
+
 		// builds ie. "text_parameter"
 		String paramName = handler.getPrefix() + node.getName();
 
 		// Saves into "collect_text_parameter"
 		String collectParamName = COLLECT_PREFIX + paramName;
+		
+		return collectParamName;
+	}
+	
+	protected void getHTMLParameterName(Entity plotEntity, Map<String,String> valuesByHtmlParameterName,
+			Node<?> node) {
+		
+		AbstractAttributeHandler<?> handler = findHandler(node);
+		
+		if( handler == null ){
+			throw new IllegalArgumentException("No handler found for node " + ( node!=null?node.getName():"null node" ) );
+		}
+
+		// builds ie. "text_parameter"
+		String paramName = handler.getPrefix() + node.getName();
+
+		// Saves into "collect_text_parameter"
+		String collectParamName = COLLECT_PREFIX + paramName;
+
 		if (node instanceof Attribute) {
 			String value = valuesByHtmlParameterName.get(collectParamName);
 			if (value == null) {
@@ -298,7 +433,7 @@ public class BalloonInputFieldsUtils {
 		} else if (node instanceof Entity) {
 			Entity entity = (Entity) node;
 			List<Node<?>> entityChildren = entity.getChildren();
-			
+
 			EntityDefinition entityDef = entity.getDefinition();
 			if (entityDef.isMultiple()) {
 				if (! entityDef.isEnumerable()) {
@@ -309,24 +444,24 @@ public class BalloonInputFieldsUtils {
 				String entityKey = entity.getKeyValues()[0];
 				collectParamName += "[" + entityKey + "]";
 			}
-//			int index = 0;
+			//			int index = 0;
 			for (Node<?> child : entityChildren) {
 				AbstractAttributeHandler<?> handlerEntityAttribute = findHandler(child);
 				String parameterName = getMultipleParameterName( collectParamName, child, handlerEntityAttribute );
 				String parameterValue = getMultipleParameterValue(child,handlerEntityAttribute, entity);
 				if( StringUtils.isNotBlank( parameterValue ) ){
-//					String previousValue = valuesByHtmlParameterName.get(parameterName);
-//					String newValue = previousValue == null ? null: previousValue + PARAMETER_SEPARATOR + parameterValue;
+					//					String previousValue = valuesByHtmlParameterName.get(parameterName);
+					//					String newValue = previousValue == null ? null: previousValue + PARAMETER_SEPARATOR + parameterValue;
 					valuesByHtmlParameterName.put(parameterName, parameterValue);
 				}
-//				index++;
+				//				index++;
 			}
 		}
 	}
 
-//	private String getMultipleParameterValue(Node<?> child, AbstractAttributeHandler<?> cah, Entity entity, int index) {
-//		return cah.getValueFromParameter(cah.getPrefix() + child.getName(), entity, index);
-//	}
+	//	private String getMultipleParameterValue(Node<?> child, AbstractAttributeHandler<?> cah, Entity entity, int index) {
+	//		return cah.getValueFromParameter(cah.getPrefix() + child.getName(), entity, index);
+	//	}
 
 	private String getMultipleParameterValue(Node<?> child, AbstractAttributeHandler<?> cah, Entity entity) {
 		return cah.getValueFromParameter(cah.getPrefix() + child.getName(), entity);
@@ -334,11 +469,11 @@ public class BalloonInputFieldsUtils {
 
 	private String getMultipleParameterName( String collectParamName, 
 			Node<?> child, AbstractAttributeHandler<?> cah ) {
-		
+
 		return collectParamName + "." + cah.getPrefix() + child.getName();
 	}
 
-	
+
 	private String removeArraySuffix(String parameterName) {
 
 		String cleanParamater = parameterName;
@@ -366,8 +501,8 @@ public class BalloonInputFieldsUtils {
 	}
 
 	public NodeChangeSet saveToEntity(Map<String, String> parameters, Entity entity) {
-		NodeChangeMap result = new NodeChangeMap();
-		
+		final NodeChangeMap result = new NodeChangeMap();
+
 		Set<Entry<String, String>> parameterEntries = parameters.entrySet();
 
 		for (Entry<String, String> entry : parameterEntries) {
@@ -412,5 +547,5 @@ public class BalloonInputFieldsUtils {
 		AbstractAttributeHandler<?> handler = findHandler(cleanName);
 		return handler.getAttributeNodeFromParameter(cleanName, entity, index);
 	}
-	
+
 }

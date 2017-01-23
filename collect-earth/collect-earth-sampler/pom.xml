@@ -5,7 +5,7 @@
 	<parent>
 		<groupId>org.openforis.collect.earth</groupId>
 		<artifactId>collect-earth</artifactId>
-		<version>1.1.16</version>
+		<version>1.5.3-SNAPSHOT</version>
 	</parent>
 
 	<artifactId>collect-earth-sampler</artifactId>
@@ -13,10 +13,15 @@
 	<name>Earth Sampler</name>
 
 	<properties>
-		<geotools.version>9.4</geotools.version>
+		<geotools.version>14.3</geotools.version>
 	</properties>
 
 	<dependencies>
+		<dependency>
+			<groupId>org.openforis.collect.earth</groupId>
+			<artifactId>collect-earth-core</artifactId>
+			<version>${project.version}</version>
+		</dependency>
 		<dependency>
 			<groupId>net.sf.opencsv</groupId>
 			<artifactId>opencsv</artifactId>
@@ -30,40 +35,12 @@
 		<!-- GeoTools -->
 		<dependency>
 			<groupId>org.geotools</groupId>
-			<artifactId>gt-main</artifactId>
-			<version>${geotools.version}</version>
-			<exclusions>
-				<exclusion>
-					<artifactId>commons-beanutils</artifactId>
-					<groupId>commons-beanutils</groupId>
-				</exclusion>
-			</exclusions>
-		</dependency>
-		<dependency>
-			<groupId>org.geotools</groupId>
-			<artifactId>gt-metadata</artifactId>
-			<version>${geotools.version}</version>
-		</dependency>
-		<dependency>
-			<groupId>org.geotools</groupId>
 			<artifactId>gt-referencing</artifactId>
 			<version>${geotools.version}</version>
 		</dependency>
-
-		<dependency>
-			<groupId>org.geotools</groupId>
-			<artifactId>gt-epsg-hsql</artifactId>
-			<version>${geotools.version}</version>
-		</dependency>
-
 		<dependency>
 			<groupId>org.geotools</groupId>
 			<artifactId>gt-geotiff</artifactId>
-			<version>${geotools.version}</version>
-		</dependency>
-		<dependency>
-			<groupId>org.geotools</groupId>
-			<artifactId>gt-image</artifactId>
 			<version>${geotools.version}</version>
 		</dependency>
 		<dependency>

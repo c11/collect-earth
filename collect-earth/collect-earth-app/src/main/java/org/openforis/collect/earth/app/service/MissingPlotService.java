@@ -5,9 +5,10 @@ import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
-import java.io.FileWriter;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -46,7 +47,8 @@ public class MissingPlotService {
 		try {
 			tempFile = File.createTempFile("missingPlots",  "csv");
 			tempFile.deleteOnExit();
-			fw = new BufferedWriter( new FileWriter( tempFile ) );
+			
+			fw = new BufferedWriter(new OutputStreamWriter(  new FileOutputStream( tempFile ), "UTF-8" ) );
 
 
 			Set<String> files = missingPlotData.keySet();
@@ -57,7 +59,10 @@ public class MissingPlotService {
 				for (String[] plotData : missingPlots) {
 					csvRow = new StringBuffer("");
 					for (String data : plotData) {
-						csvRow.append(data).append(",");
+						
+						data = data.replaceAll("\"", "\\\"");
+						
+						csvRow.append("\"").append(data).append("\"").append(",");
 					}
 					csvRow.delete(csvRow.length()-1, csvRow.length()).append("\n");
 					fw.write(csvRow.toString());
@@ -195,7 +200,7 @@ public class MissingPlotService {
 			CollectRecord record = recordManager.load(earthSurveyService.getCollectSurvey(), summaries.get(0).getId(), Step.ENTRY);
 			BooleanAttribute node = null;
 			try {
-				node = (BooleanAttribute) record.getNodeByPath("/plot/actively_saved"); //$NON-NLS-1$
+				node = (BooleanAttribute) record.findNodeByPath("/plot/"+ EarthConstants.ACTIVELY_SAVED_ATTRIBUTE_NAME); //$NON-NLS-1$
 			} catch (Exception e) {
 				logger.error("No actively_saved information found", e); //$NON-NLS-1$
 			}

@@ -8,12 +8,13 @@ import java.util.List;
 import org.openforis.collect.earth.app.EarthConstants;
 import org.openforis.collect.io.data.CSVDataExportProcess;
 import org.openforis.collect.io.data.CSVDataImportProcess;
+import org.openforis.collect.io.data.DataExportStatus;
 import org.openforis.collect.io.data.DataImportSummaryItem;
 import org.openforis.collect.io.data.XMLDataExportProcess;
 import org.openforis.collect.io.data.XMLDataImportProcess;
+import org.openforis.collect.io.data.csv.CSVDataImportSettings;
 import org.openforis.collect.io.data.csv.CSVExportConfiguration;
-import org.openforis.collect.manager.RecordManager;
-import org.openforis.collect.manager.SurveyManager;
+import org.openforis.collect.manager.process.AbstractProcess;
 import org.openforis.collect.model.CollectRecord;
 import org.openforis.collect.model.CollectRecord.Step;
 import org.openforis.collect.model.CollectSurvey;
@@ -36,12 +37,6 @@ public class DataImportExportService {
 	@Autowired
 	private EarthSurveyService earthSurveyService;
 
-	@Autowired
-	private SurveyManager surveyManager;
-
-	@Autowired
-	private RecordManager recordManager;
-
 	private final Logger logger = LoggerFactory.getLogger(DataImportExportService.class);
 	/**
 	 * Use the application context to get a new bean everytime the data is exported ( as a new instance is needed every time)
@@ -58,38 +53,39 @@ public class DataImportExportService {
 		}
 	}
 
-	public CSVDataExportProcess exportSurveyAsCsv(File exportToFile) throws Exception {
+	public CSVDataExportProcess exportSurveyAsCsv(File exportToFile, boolean includeCodeItemLabelColumn) throws Exception {
 		final CSVDataExportProcess csvDataExportProcess = applicationContext.getBean(CSVDataExportProcess.class);
 		csvDataExportProcess.setOutputFile(exportToFile);
 
-		csvDataExportProcess.setEntityId(earthSurveyService.getCollectSurvey().getSchema().getRootEntityDefinition(EarthConstants.ROOT_ENTITY_NAME).getId());
+		csvDataExportProcess.setEntityId(earthSurveyService.getRootEntityDefinition().getId());
 		csvDataExportProcess.setRecordFilter( getRecordFilter() ) ;
 		
 		CSVExportConfiguration config = new CSVExportConfiguration();
 		config.setIncludeAllAncestorAttributes(true);
+		config.setIncludeCodeItemLabelColumn(includeCodeItemLabelColumn);
 		csvDataExportProcess.setConfiguration(config);
 
 		return csvDataExportProcess;
 	}
 
 	private RecordFilter getRecordFilter( ) {
-		RecordFilter recordFilter = new RecordFilter(earthSurveyService.getCollectSurvey(), earthSurveyService.getCollectSurvey().getSchema().getRootEntityDefinition(EarthConstants.ROOT_ENTITY_NAME).getId());
+		RecordFilter recordFilter = new RecordFilter(earthSurveyService.getCollectSurvey(), earthSurveyService.getRootEntityDefinition().getId());
 		recordFilter.setStepGreaterOrEqual(Step.ENTRY);
 		return recordFilter;
 	}
 
-	public CSVDataExportProcess exportSurveyAsFusionTable(File exportToFile) throws Exception {
+	public CSVDataExportProcess exportSurveyAsFusionTable(File exportToFile, boolean includeCodeItemLabelColumn) throws Exception {
 
 		final CSVDataExportProcess csvDataExportProcess = applicationContext.getBean(CSVDataExportProcess.class);
 		csvDataExportProcess.setOutputFile(exportToFile);
-		csvDataExportProcess.setEntityId(earthSurveyService.getCollectSurvey().getSchema().getRootEntityDefinition(EarthConstants.ROOT_ENTITY_NAME).getId());
+		csvDataExportProcess.setEntityId(earthSurveyService.getRootEntityDefinition().getId());
 		csvDataExportProcess.setRecordFilter( getRecordFilter() ) ;
 		
-
 		CSVExportConfiguration config = new CSVExportConfiguration();
 		config.setIncludeAllAncestorAttributes(true);
 		config.setIncludeCodeItemPositionColumn(true);
 		config.setIncludeKMLColumnForCoordinates(true);
+		config.setIncludeCodeItemLabelColumn( includeCodeItemLabelColumn );
 		csvDataExportProcess.setConfiguration(config);
 		return csvDataExportProcess;
 	}
@@ -111,11 +107,14 @@ public class DataImportExportService {
 
 		importProcess.setFile(importFromFile);
 		importProcess.setSurvey(earthSurveyService.getCollectSurvey());
-		importProcess.setParentEntityDefinitionId(earthSurveyService.getCollectSurvey().getSchema().getRootEntityDefinition(EarthConstants.ROOT_ENTITY_NAME).getId());
+		importProcess.setParentEntityDefinitionId(earthSurveyService.getRootEntityDefinition().getId());
 		importProcess.setStep(Step.ENTRY );
-		importProcess.setRecordValidationEnabled(false);
-		importProcess.setInsertNewRecords(false);
-		importProcess.setNewRecordVersionName(null);
+		CSVDataImportSettings settings = new CSVDataImportSettings();
+		settings.setRecordValidationEnabled(false);
+		settings.setInsertNewRecords(false);
+		settings.setNewRecordVersionName(null);
+		settings.setReportNoRecordFoundErrors(false);
+		importProcess.setSettings(settings);
 		return importProcess;
 	}
 
@@ -133,7 +132,7 @@ public class DataImportExportService {
 					boolean include = true;
 
 					try {
-						final BooleanAttribute node = (BooleanAttribute) record.getNodeByPath("/plot/actively_saved"); //$NON-NLS-1$
+						final BooleanAttribute node = (BooleanAttribute) record.getNodeByPath("/plot/" + EarthConstants.ACTIVELY_SAVED_ATTRIBUTE_NAME); //$NON-NLS-1$
 
 						include = (node == null || (node != null && !node.isEmpty() && node.getValue().getValue()) );
 					} catch (Exception e) {
@@ -164,6 +163,21 @@ public class DataImportExportService {
 
 		logger.warn("Data imported into db. Number of Records imported : " + entryIdsToImport.size() + " Conflicting records added : " //$NON-NLS-1$ //$NON-NLS-2$
 				+ conflictingRecordsAdded);
+	}
+
+	public AbstractProcess<Void, DataExportStatus> exportSurveyAsBackup(File exportToFile) {
+		final CSVDataExportProcess csvDataExportProcess = applicationContext.getBean(CSVDataExportProcess.class);
+		csvDataExportProcess.setOutputFile(exportToFile);
+		csvDataExportProcess.setEntityId(earthSurveyService.getRootEntityDefinition().getId());
+		csvDataExportProcess.setRecordFilter( getRecordFilter() ) ;
+		
+
+		CSVExportConfiguration config = new CSVExportConfiguration();
+		config.setIncludeAllAncestorAttributes(true);
+		config.setIncludeCodeItemPositionColumn(true);
+		config.setIncludeKMLColumnForCoordinates(true);
+		csvDataExportProcess.setConfiguration(config);
+		return csvDataExportProcess;
 	}
 
 

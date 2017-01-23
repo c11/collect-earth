@@ -1,11 +1,10 @@
 package org.openforis.collect.earth.app.service;
 
-import java.awt.Toolkit;
-import java.awt.datatransfer.Clipboard;
-import java.awt.datatransfer.StringSelection;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.StringWriter;
@@ -14,7 +13,6 @@ import java.net.URL;
 import java.security.Security;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Observable;
@@ -34,21 +32,22 @@ import javax.net.ssl.X509TrustManager;
 
 import liquibase.util.SystemUtils;
 
-import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.openforis.collect.earth.app.EarthConstants;
 import org.openforis.collect.earth.app.desktop.ServerController.ServerInitializationEvent;
 import org.openforis.collect.earth.app.service.LocalPropertiesService.EarthProperty;
+import org.openforis.collect.earth.sampler.model.SimplePlacemarkObject;
 import org.openqa.selenium.By;
 import org.openqa.selenium.JavascriptExecutor;
-import org.openqa.selenium.Keys;
-import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebDriverException;
 import org.openqa.selenium.WebElement;
+import org.openqa.selenium.browserlaunchers.locators.BrowserInstallation;
 import org.openqa.selenium.chrome.ChromeDriver;
 import org.openqa.selenium.firefox.FirefoxBinary;
 import org.openqa.selenium.firefox.FirefoxDriver;
 import org.openqa.selenium.firefox.FirefoxProfile;
+import org.openqa.selenium.firefox.GeckoDriverService;
+import org.openqa.selenium.firefox.MarionetteDriver;
 import org.openqa.selenium.remote.DesiredCapabilities;
 import org.openqa.selenium.remote.RemoteWebDriver;
 import org.slf4j.Logger;
@@ -72,6 +71,7 @@ import freemarker.template.TemplateException;
  */
 @Component
 public class BrowserService implements Observer{
+
 
 	/**
 	 * To avoid needing to addd the SSL certificate of Google to the certificate repository we ause a Trust Manager that basically trust all
@@ -107,6 +107,9 @@ public class BrowserService implements Observer{
 
 	@Autowired
 	private GeolocalizeMapService geoLocalizeTemplateService;
+	
+	@Autowired
+	private PlaygroundHandlerThread codeEditorHandlerThread;
 
 	private final Vector<RemoteWebDriver> drivers = new Vector<RemoteWebDriver>();
 	private final Logger logger = LoggerFactory.getLogger(BrowserService.class);
@@ -114,7 +117,7 @@ public class BrowserService implements Observer{
 	private static final Configuration cfg = new Configuration();
 	private static Template template;
 
-	private RemoteWebDriver webDriverEE, webDriverBing, webDriverTimelapse, webDriverGeePlayground, webDriverHere;
+	private RemoteWebDriver webDriverEE, webDriverBing, webDriverTimelapse, webDriverGeePlayground, webDriverHere, webDriverStreetView, webDriverYandex;
 
 	private static boolean geeMethodUpdated = false;
 
@@ -138,24 +141,32 @@ public class BrowserService implements Observer{
 		final String browserSetInProperties = localPropertiesService.getValue(EarthProperty.BROWSER_TO_USE);
 		final String browserThatExists = checkIfBrowserIsInstalled(browserSetInProperties);
 
-		try {
-			if (browserThatExists != null && browserThatExists.trim().toLowerCase().equals(EarthConstants.CHROME_BROWSER.toLowerCase())) {
-					driver = startChromeBrowser(driver);
-			} else {
-				driver = startFirefoxBrowser(driver);
+		
+	
+		if (browserThatExists != null && browserThatExists.trim().toLowerCase().equals(EarthConstants.CHROME_BROWSER.toLowerCase())) {
+			try{
+				driver = startChromeBrowser(driver);
+			} catch (final WebDriverException e) {
+				logger.warn("The browser executable for Chrome (chrome.exe in Windows) cannot be found, please edit earth.properties and add the chrome.exe location in "
+						+ EarthProperty.CHROME_BINARY_PATH + " pointing to the full path to chrome", e);
 			}
-		} catch (final WebDriverException e) {
-			logger.warn("The chrome executable chrome.exe cannot be found, please edit earth.properties and add the chrome.exe location in "
-					+ EarthProperty.CHROME_BINARY_PATH + " pointing to the full path to chrome.exe", e);
-			// The user chose Chrome, but Chrome could not be found
+		} else {
+			try{
+				driver = startFirefoxBrowser(driver);
+			} catch (final WebDriverException e) {
+				logger.warn("The browser executable for Firefox (Firefox.exe) cannot be found, please edit earth.properties and add the firefox.exe location in "
+						+ EarthProperty.FIREFOX_BINARY_PATH + " pointing to the full path to firefox", e);
+			}
+		}
+	
+		if( driver == null ){
 			if( browserSetInProperties.equals(browserThatExists ) ){
 				throw new BrowserNotFoundException("Chrome could not be found");
 			}else{ // THe user chose Firefox, it was not found then it tried Chrome and it was not found either, no browser has been installed 
-				throw new BrowserNotFoundException("Neither Chrome nor Firefox is installed. You need to have one of them installed in order to use GEE, Bing Maps or Saiku.", e);
+				throw new BrowserNotFoundException("Neither Chrome nor Firefox is installed. You need to have one of them installed in order to use GEE, Bing Maps or Saiku.");
 			}
-			
 		}
-
+	
 		return driver;
 	}
 
@@ -218,12 +229,12 @@ public class BrowserService implements Observer{
 		return jsResult.toString();
 	}
 
-	private String getGEEJavascript(String[] latLong) {
+	private String getGEEJavascript(SimplePlacemarkObject placemarkObject) {
 
 		//final Map<String, String> data = new HashMap<String, String>();
-		final Map<String,Object> data = geoLocalizeTemplateService.getPlacemarkData(latLong);
-		data.put("latitude", latLong[0]);
-		data.put("longitude", latLong[1]);
+		final Map<String,Object> data = geoLocalizeTemplateService.getPlacemarkData(placemarkObject);
+		data.put("latitude", placemarkObject.getCoord().getLatitude());
+		data.put("longitude", placemarkObject.getCoord().getLongitude());
 		data.put(EarthProperty.GEE_FUNCTION_PICK.toString(), localPropertiesService.getValue(EarthProperty.GEE_FUNCTION_PICK));
 		data.put(EarthProperty.GEE_ZOOM_OBJECT.toString(), localPropertiesService.getValue(EarthProperty.GEE_ZOOM_OBJECT));
 		data.put(EarthProperty.GEE_ZOOM_METHOD.toString(), localPropertiesService.getValue(EarthProperty.GEE_ZOOM_METHOD));
@@ -267,37 +278,34 @@ public class BrowserService implements Observer{
 	private RemoteWebDriver initBrowser() throws BrowserNotFoundException  {
 		RemoteWebDriver driver = null;
 		driver = chooseDriver();
+		//minimizeWindow(driver);
 		drivers.add(driver);
 		return driver;
 	}
 
-	/*private boolean isGEEValidJS(String geeJs, RemoteWebDriver driver) {
-
-		boolean stillValid = false;
-
-		try {
-
-			geeJs = geeJs.substring(0, geeJs.indexOf("focusObject."));
-			((JavascriptExecutor) driver).executeScript(geeJs);
-
-			stillValid = true;
-		} catch (final Exception e) {
-			processSeleniumError(e);
-		}
-
-		return stillValid;
-	}*/
-
-	private boolean isIdOrNamePresent(String elementId, RemoteWebDriver driver) {
+	public static boolean isIdOrNamePresent(String elementId, RemoteWebDriver driver) {
 		boolean found = false;
 
 		try {
 			if (driver.findElementById(elementId).isDisplayed() || driver.findElementByName(elementId).isDisplayed()) {
 				found = true;
 			}
-			logger.debug("Found " + elementId);
 		} catch (final Exception e) {
-			logger.debug("Not Found " + elementId);
+			// Not found
+		}
+
+		return found;
+	}
+	
+	public static boolean isCssElementPresent(String cssElement, RemoteWebDriver driver) {
+		boolean found = false;
+
+		try {
+			if (driver.findElementByCssSelector(cssElement).isDisplayed() && driver.findElementByCssSelector(cssElement).isEnabled()  ) {
+				found = true;
+			}
+		} catch (final Exception e) {
+			// Not found
 		}
 
 		return found;
@@ -318,38 +326,23 @@ public class BrowserService implements Observer{
 		return found;
 	}
 
-	private RemoteWebDriver loadLayers(String[] latLong, RemoteWebDriver driver) throws InterruptedException, BrowserNotFoundException {
+	private RemoteWebDriver loadLayers(SimplePlacemarkObject placemarkObject, RemoteWebDriver driver) throws InterruptedException, BrowserNotFoundException {
 
 		if (driver != null) {
-/*			if (!isIdOrNamePresent("workspace-el", driver)) {
-				final String[] layers = {
-				// "http://earthengine.google.org/#detail/LANDSAT%2FL7_L1T_ANNUAL_GREENEST_TOA"
-				// "http://earthengine.google.org/#detail/LANDSAT%2FL5_L1T_ANNUAL_GREENEST_TOA",
-				"https://earthengine.google.org/#detail/LANDSAT%2FLC8_L1T_ANNUAL_GREENEST_TOA" };
-				for (final String urlForLayer : layers) {
-					driver = navigateTo(urlForLayer, driver);
-					if (waitForXPath("//*[@id=\"detail-el\"]/div[2]/div[1]", driver)) {
-						driver.findElementByXPath("//*[@id=\"detail-el\"]/div[2]/div[1]").click();
-						waitFor("workspace-el", driver);
-					}
-				}
-			} */
-			
+
 			if (!isIdOrNamePresent("workspace-el", driver)) {
-				driver = navigateTo("https://earthengine.google.org/#workspace", driver);
+				String url = localPropertiesService.getValue( EarthProperty.GEE_EXPLORER_URL);
+				driver = navigateTo(url, driver);
 			}
 			
 			if (waitFor("workspace-el", driver)) {
 				if (driver instanceof JavascriptExecutor) {
 					try {
-						String geeJs = getGEEJavascript(latLong);
+						String geeJs = getGEEJavascript(placemarkObject);
 						if (!isGeeMethodUpdated()) {
 							try {
-								// REFRESH EVERY TIME!!!
-								// if (!isGEEValidJS(geeJs, driver)) {
-									refreshJSValues(geeJs, driver);
-									geeJs = getGEEJavascript(latLong);
-								//}
+								refreshJSValues(geeJs, driver);
+								geeJs = getGEEJavascript(placemarkObject);
 							} catch (final Exception e) {
 								logger.error("Error checking the validity of the GEE js code", e);
 							} finally {
@@ -360,19 +353,28 @@ public class BrowserService implements Observer{
 					} catch (final Exception e) {
 						processSeleniumError(e);
 					}
+					
 					Thread.sleep(1000);
-					final List<WebElement> dataLayerVisibility = driver.findElementsByClassName("indicator");
-					for (final WebElement webElement : dataLayerVisibility) {
-						if (webElement.isDisplayed()) {
-							webElement.click();
-							Thread.sleep(1000);
-							webElement.click();
-						}
-					}
+					String eyeShowing = "span.indicator.visible";
+					String eyeLoading = "span.indicator.loading";
+					
+					clickOnElements(driver, eyeShowing);
+					clickOnElements(driver, eyeLoading);
 				}
 			}
 		}
 		return driver;
+	}
+
+	public void clickOnElements(RemoteWebDriver driver, String cssSelector) {
+		final List<WebElement> dataLayerVisibility = driver.findElementsByCssSelector( cssSelector );
+		for (final WebElement webElement : dataLayerVisibility) {
+			if (webElement.isDisplayed()) {
+				webElement.click();
+				//Thread.sleep(1000);
+				//webElement.click();
+			}
+		}
 	}
 
 	public static boolean isGeeMethodUpdated() {
@@ -427,7 +429,7 @@ public class BrowserService implements Observer{
 		return driver;
 	}
 
-	private boolean isDriverWorking(RemoteWebDriver driver) {
+	protected boolean isDriverWorking(RemoteWebDriver driver) {
 		boolean stillWorking = true;
 		try {
 			driver.findElement(By.xpath("//body"));
@@ -438,12 +440,12 @@ public class BrowserService implements Observer{
 	}
 
 	/**
-	 * Opens a browser window with the Bing Maps representation of th eplot.
-	 * @param coordinates The center point of the plot.
+	 * Opens a browser window with the Bing Maps representation of the plot.
+	 * @param placemarkObject The data of the plot.
 	 * @throws BrowserNotFoundException In case the browser could not be found
 	 * 
 	 */
-	public void openBingMaps(String coordinates) throws BrowserNotFoundException {
+	public void openBingMaps(SimplePlacemarkObject placemarkObject) throws BrowserNotFoundException {
 
 		if (localPropertiesService.isBingMapsSupported()) {
 
@@ -452,12 +454,12 @@ public class BrowserService implements Observer{
 			}
 
 			final RemoteWebDriver driverCopy = webDriverBing;
-			final String[] latLong = coordinates.split(",");
+			
 			final Thread loadBingThread = new Thread() {
 				@Override
 				public void run() {
 					try {
-						webDriverBing = navigateTo(geoLocalizeTemplateService.getBingUrl(latLong,  localPropertiesService.getValue( EarthProperty.BING_MAPS_KEY), GeolocalizeMapService.FREEMARKER_BING_HTML_TEMPLATE).toString(), driverCopy);
+						webDriverBing = navigateTo(geoLocalizeTemplateService.getBingUrl(placemarkObject,  localPropertiesService.getValue( EarthProperty.BING_MAPS_KEY), GeolocalizeMapService.FREEMARKER_BING_HTML_TEMPLATE).toString(), driverCopy);
 					} catch (final Exception e) {
 						logger.error("Problems loading Bing", e);
 					}
@@ -469,13 +471,84 @@ public class BrowserService implements Observer{
 		}
 	}
 	
+	
 	/**
-	 * Opens a browser window with the Here Maps representation of the plot.
-	 * @param coordinates The center point of the plot.
+	 * Opens a browser window with the Yandex Maps representation of the plot.
+	 * @param placemarkObject The data of the plot.
 	 * @throws BrowserNotFoundException In case the browser could not be found
 	 * 
 	 */
-	public void openHereMaps(String coordinates) throws BrowserNotFoundException {
+	public void openYandexMaps(SimplePlacemarkObject placemarkObject) throws BrowserNotFoundException {
+
+		if (localPropertiesService.isYandexMapsSupported()) {
+
+			if (webDriverYandex == null) {
+				webDriverYandex = initBrowser();
+			}
+
+			final RemoteWebDriver driverCopy = webDriverYandex;
+			
+			final Thread loadYandexThread = new Thread() {
+				@Override
+				public void run() {
+					try {
+						webDriverYandex = navigateTo(geoLocalizeTemplateService.getYandexUrl(placemarkObject,  GeolocalizeMapService.FREEMARKER_YANDEX_HTML_TEMPLATE).toString(), driverCopy);
+					} catch (final Exception e) {
+						logger.error("Problems loading Yandex", e);
+					}
+				};
+			};
+			
+			loadYandexThread.start();
+			
+		}
+	}
+	
+		/**
+		 * Opens a browser window with the Google Street View representation of the plot.
+		 * https://www.google.com/maps/@43.7815661,11.1484876,3a,75y,210.23h,82.32t/data=!3m6!1e1!3m4!1sEz7NiCbaIYzTJkP_RMBiqw!2e0!7i13312!8i6656?hl=en
+		 * @param placemarkObject The data of the plot.
+		 * @throws BrowserNotFoundException In case the browser could not be found
+		 * 
+		 */
+		public void openStreetView(SimplePlacemarkObject placemarkObject) throws BrowserNotFoundException {
+
+			if (localPropertiesService.isStreetViewSupported()) {
+
+				if (webDriverStreetView == null) {
+					webDriverStreetView = initBrowser();
+				}
+
+				final RemoteWebDriver driverCopy = webDriverStreetView;
+			
+				final Thread loadStreetViewThread = new Thread() {
+					@Override
+					public void run() {
+						try {
+							webDriverStreetView = navigateTo(geoLocalizeTemplateService.getStreetViewUrl(
+									placemarkObject, 
+									localPropertiesService.getValue( EarthProperty.GOOGLE_MAPS_API_KEY), 
+									GeolocalizeMapService.FREEMARKER_STREET_VIEW_HTML_TEMPLATE).toString(), 
+									driverCopy
+							);
+						} catch (final Exception e) {
+							logger.error("Problems loading Street View", e);
+						}
+					};
+				};
+				
+				loadStreetViewThread.start();
+				
+			}
+		}	
+		
+	/**
+	 * Opens a browser window with the Here Maps representation of the plot.
+	 * @param placemarkObject The data of the plot.
+	 * @throws BrowserNotFoundException In case the browser could not be found
+	 * 
+	 */
+	public void openHereMaps(SimplePlacemarkObject placemarkObject) throws BrowserNotFoundException {
 
 		if (localPropertiesService.isHereMapsSupported()) {
 
@@ -484,12 +557,12 @@ public class BrowserService implements Observer{
 			}
 
 			final RemoteWebDriver driverCopy = webDriverHere;
-			final String[] centerPlotLocation = coordinates.split(",");
+			
 			final Thread loadHereThread = new Thread() {
 				@Override
 				public void run() {
 					try {
-						webDriverHere = navigateTo(geoLocalizeTemplateService.getHereUrl(centerPlotLocation, localPropertiesService.getValue( EarthProperty.HERE_MAPS_APP_ID), localPropertiesService.getValue( EarthProperty.HERE_MAPS_APP_CODE), GeolocalizeMapService.FREEMARKER_HERE_HTML_TEMPLATE).toString(), driverCopy);
+						webDriverHere = navigateTo(geoLocalizeTemplateService.getHereUrl(placemarkObject, localPropertiesService.getValue( EarthProperty.HERE_MAPS_APP_ID), localPropertiesService.getValue( EarthProperty.HERE_MAPS_APP_CODE), GeolocalizeMapService.FREEMARKER_HERE_HTML_TEMPLATE).toString(), driverCopy);
 					} catch (final Exception e) {
 						logger.error("Problems loading Here Maps", e);
 					}
@@ -501,119 +574,49 @@ public class BrowserService implements Observer{
 		}
 	}
 
-
-	private void paste(WebElement textarea, WebDriver webDriver, String jsGeeText) {
-	    JavascriptExecutor js = (JavascriptExecutor ) webDriver;
-	    js.executeScript("arguments[0].value='arguments[1]'", textarea, jsGeeText );
-
-	}
-	
 	
 	/**
 	 * Opens a browser window with the Google Earth Engine Playground and runs the freemarker template found in resources/eePlaygroundScript.fmt on the main editor of GEE. 
-	 * @param coordinates The center point of the plot.
+	 * @param placemarkObject The center point of the plot.
 	 * @throws BrowserNotFoundException If the browser cannot be found
 	 * 
 	 */
-	public void openGeePlayground(String coordinates) throws BrowserNotFoundException {
+	public void openGeePlayground(SimplePlacemarkObject placemarkObject) throws BrowserNotFoundException {
 
 		if (localPropertiesService.isGeePlaygroundSupported()) {
 
-			if (webDriverGeePlayground == null) {
-				webDriverGeePlayground = initBrowser();
+			boolean firstOpening = false;
+			if (getWebDriverGeePlayground() == null) {
+				setWebDriverGeePlayground(initBrowser());
+				firstOpening = true;
 			}
-
-			final String[] latLong = coordinates.split(",");
-
-			final Thread loadEEThread = new Thread() {
-				@Override
-				public void run() {
-					try {
-						URL fileWithScript = geoLocalizeTemplateService.getTemporaryUrl(latLong, getGeePlaygroundTemplate());
-						
-						if (!isIdOrNamePresent("main", webDriverGeePlayground)) {
-							webDriverGeePlayground = navigateTo( localPropertiesService.getGeePlaygoundUrl(), webDriverGeePlayground);
-						}
-						
-						webDriverGeePlayground.findElementByCssSelector("button.goog-button:nth-child(5)").click();
-						
-						WebElement textArea = webDriverGeePlayground.findElement(By.className("ace_text-input"));
-						
-						Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
-						String contents = FileUtils.readFileToString( new File(fileWithScript.toURI()));
-						StringSelection clipboardtext = new StringSelection( contents );
-						clipboard.setContents(clipboardtext, null);
-						
-						if( SystemUtils.IS_OS_MAC || SystemUtils.IS_OS_MAC_OSX){
-							
-							
-						    // Command key (apple key) is not working on Chrome on Mac. Try with the right clik
-							//Actions action= new Actions(webDriverGeePlayground);
-							//action.contextClick(textArea).clickAndHold().sendKeys(Keys.ARROW_DOWN).sendKeys(Keys.RETURN).release();
-							//action.contextClick(textArea).clickAndHold().sendKeys(Keys.ARROW_DOWN).sendKeys(Keys.ARROW_DOWN).sendKeys(Keys.RETURN).release();
-							textArea.sendKeys(Keys.chord(Keys.COMMAND,"a"));
-							textArea.sendKeys(Keys.chord(Keys.COMMAND,"v"));				
-						}else{
-							textArea.sendKeys(Keys.chord(Keys.CONTROL,"a"));
-							textArea.sendKeys(Keys.chord(Keys.CONTROL,"v"));
-						}
-						
-						
-						//textArea.sendKeys( FileUtils.readFileToString( new File(fileWithScript.toURI())) );
-						//((JavascriptExecutor)webDriverGeePlayground).executeScript("arguments[0].value = arguments[1];", textArea,);
-						Thread.sleep(1000);
-						webDriverGeePlayground.findElementByCssSelector("button.goog-button:nth-child(4)").click();
-						
-					} catch (final Exception e) {
-						logger.error("Error when opening Earth Engine browser window", e);
-					}
+			
+			if( codeEditorHandlerThread.isWaitingForLogin() ){
+				codeEditorHandlerThread.stopWaitingForLogin();
+				try {
+					Thread.sleep(2500);
+				} catch (InterruptedException e) {
+					logger.error( "Error while waiting for the GEE Playground thread to die");
 				}
-
-				/**
-				 * Get the GEE Playground script that should be used.
-				 * There is an standard one that resides in resources/eePlaygroundScript.fmt but a project might have its own script.
-				 * 
-				 * @return The generic script in the resources folder or the file called eePlaygroundScript.fmt in hte same folder where the current project file resides
-				 */
-				private String getGeePlaygroundTemplate() {
-					String genericPlaygroundScript = GeolocalizeMapService.FREEMARKER_GEE_PLAYGROUND_TEMPLATE;
-					
-					String projectPlaygroundScript = getProjectGeeScript();
-					if( getProjectGeeScript() != null  ){
-						return projectPlaygroundScript;
-					}
-					
-					return genericPlaygroundScript;
-				};
-			};
-			loadEEThread.start();
+			}
+			
+			if( firstOpening && ( SystemUtils.IS_OS_MAC || SystemUtils.IS_OS_MAC_OSX )){
+				codeEditorHandlerThread.disableCodeEditorAutocomplete( getWebDriverGeePlayground() );
+			}
+			
+			codeEditorHandlerThread.loadPlaygroundScript(placemarkObject, getWebDriverGeePlayground() );
 		}
 	}
 	
-	/**
-	 * Find the GEE playground script that should be used for the project that is currently loaded in Collect Earth
-	 * @return The path to the GEE playground generic script or the one that is specified in the project folder if it exists. 
-	 */
-	private String getProjectGeeScript() {
-		// Where the metatadata file (usually placemark.idm.xml ) is located
-		
-		// Is there a "eePlaygroundScript.fmt" file in the same folder than in the metadata file folder?
-		File projectGeePlayground = new File( localPropertiesService.getProjectFolder() + File.separatorChar + GeolocalizeMapService.FREEMARKER_GEE_PLAYGROUND_TEMPLATE_FILE_NAME);
-		
-		String geePlaygroundFilePath = null;
-		if( projectGeePlayground.exists() ){
-			geePlaygroundFilePath = projectGeePlayground.getAbsolutePath();
-		}
-		return geePlaygroundFilePath;
-	}
+
 	
 	/**
 	 * Opens a browser window with the Google Earth Engine representation of the plot. The Landsat 8 Annual Greenest pixel TOA for 2013 is loaded automatically. 
-	 * @param coordinates The center point of the plot.
+	 * @param placemarkObject The center point of the plot.
 	 * @throws BrowserNotFoundException If the browser cannot be found
 	 * 
 	 */
-	public void openEarthEngine(String coordinates) throws BrowserNotFoundException {
+	public void openEarthEngine(SimplePlacemarkObject placemarkObject) throws BrowserNotFoundException {
 
 		logger.warn("Starting to open EE - supported : " + localPropertiesService.isEarthEngineSupported()   );
 		if (localPropertiesService.isEarthEngineSupported()) {
@@ -623,15 +626,14 @@ public class BrowserService implements Observer{
 				webDriverEE = initBrowser();
 			}
 
-			final String[] latLong = coordinates.split(",");
 
 			final RemoteWebDriver driverCopy = webDriverEE;
 			final Thread loadEEThread = new Thread() {
 				@Override
 				public void run() {
 					try {
-						logger.warn("Loading layers - " + Arrays.toString(latLong)   );
-						webDriverEE = loadLayers(latLong, driverCopy);
+						logger.warn("Loading layers - " + placemarkObject   );
+						webDriverEE = loadLayers(placemarkObject, driverCopy);
 					} catch (final Exception e) {
 						logger.error("Error when opening Earth Engine browser window", e);
 					}
@@ -643,11 +645,11 @@ public class BrowserService implements Observer{
 
 	/**
 	 * Opens a browser window with the Google Earth Engine Timelapse representation of the plot. 
-	 * @param coordinates The center point of the plot.
+	 * @param placemarkObject The center point of the plot.
 	 * @throws BrowserNotFoundException If the browser cannot be found
 	 * 
 	 */
-	public void openTimelapse(final String coordinates) throws BrowserNotFoundException {
+	public void openTimelapse(final SimplePlacemarkObject placemarkObject) throws BrowserNotFoundException {
 
 		if (localPropertiesService.isTimelapseSupported()) {
 
@@ -661,7 +663,8 @@ public class BrowserService implements Observer{
 				public void run() {
 
 					try {
-						webDriverTimelapse = navigateTo("https://earthengine.google.org/#timelapse/v=" + coordinates + ",10.812,latLng&t=0.08",
+						String coordinates = placemarkObject.getCoord().toString();
+						webDriverTimelapse = navigateTo("https://earthengine.google.org/timelapse/timelapseplayer_v2.html?timelapseclient=http://earthengine.google.org/timelapse/data&v=" + coordinates  + ",10.812,latLng&t=0.08",
 								driverCopy);
 					} catch (final Exception e) {
 						logger.error("Problems loading Timelapse", e);
@@ -742,11 +745,55 @@ public class BrowserService implements Observer{
 	}
 
 	private RemoteWebDriver startFirefoxBrowser(RemoteWebDriver driver) {
+		
+		// Firefox under version 48 will work in the "old" way with Selenium. For newer versions we need to use the GeckoDriver (Marionette)
+		final String firefoxBinaryPathSetByUser = localPropertiesService.getValue(EarthProperty.FIREFOX_BINARY_PATH);
+		
+		FirefoxLocatorFixed flf = new FirefoxLocatorFixed();
+		BrowserInstallation browserInstallation = flf.findBrowserLocationFix();
+		
+		String pathToFirefoxBin = firefoxBinaryPathSetByUser;
+		if( StringUtils.isEmpty( firefoxBinaryPathSetByUser ) ){
+			pathToFirefoxBin = browserInstallation.launcherFilePath();
+		}
+		
+		Integer firefoxVersion = getFirefoxVersionMajor( pathToFirefoxBin );
+		
+		if( firefoxVersion < 48 ){
+				
+			driver = getFirefoxDriverOld(pathToFirefoxBin);
+			
+		}else{
+			
+			String geckoDriverPath = "";
+			if( SystemUtils.IS_OS_MAC || SystemUtils.IS_OS_MAC_OSX){
+				geckoDriverPath = "resources/geckodriver_mac";
+			}else if( SystemUtils.IS_OS_UNIX ){
+				geckoDriverPath = "resources/geckodriver";
+			}else if( SystemUtils.IS_OS_WINDOWS ){
+				geckoDriverPath = "resources/geckodriver.exe";
+			}else{
+				throw new RuntimeException("Geckodriver is not supported in the current OS" );
+			}
+			
+			File geckoDriverFile = new File( geckoDriverPath );
+			
+			System.setProperty("webdriver.firefox.marionette", geckoDriverFile.getAbsolutePath() );
+			// if above property is not working or not opening the application in browser then try below property
+			System.setProperty(GeckoDriverService.GECKO_DRIVER_EXE_PROPERTY , geckoDriverFile.getAbsolutePath() );
+			System.setProperty( FirefoxDriver.SystemProperty.BROWSER_BINARY, browserInstallation.launcherFilePath() );
+			
+			driver = new MarionetteDriver();
+		}
+		
+		
+		return driver;
+	}
+
+	public RemoteWebDriver getFirefoxDriverOld(	String firefoxBinaryPath) {
+		FirefoxBinary firefoxBinary;
 		final FirefoxProfile ffprofile = new FirefoxProfile();
-		FirefoxBinary firefoxBinary = null;
-
-		final String firefoxBinaryPath = localPropertiesService.getValue(EarthProperty.FIREFOX_BINARY_PATH);
-
+		RemoteWebDriver driver =null;
 		if (firefoxBinaryPath != null && firefoxBinaryPath.trim().length() > 0) {
 			try {
 				firefoxBinary = new FirefoxBinary(new File(firefoxBinaryPath));
@@ -769,6 +816,34 @@ public class BrowserService implements Observer{
 			}
 		}
 		return driver;
+	}
+
+	private Integer getFirefoxVersionMajor(String firefoxBinaryPath) {
+	
+		Integer versionInstalled = 49;
+		try {
+			// Getting the application version from the "application.ini"file on the folder where the firefox bin is!
+			Properties applicationProperties = new Properties();
+			
+			File firefoxBin = new File( firefoxBinaryPath);
+			File applicationIni = new File( firefoxBin.getParent(), "application.ini");
+			
+			applicationProperties.load( new FileInputStream(applicationIni) );
+			
+			if( applicationProperties.containsKey("Version") ){
+				String version = applicationProperties.getProperty("Version");
+				// TYhe version should look sonething like 49.0.1, we only need the major version
+				versionInstalled = Integer.parseInt( version.split("\\.")[0] );
+			}
+		} catch (FileNotFoundException e) {
+			logger.error( "The application.ini file with info on the istalled firefox cannot be found", e);
+		} catch (IOException e) {
+			logger.error( "The application.ini file cannot be read", e);
+		}catch (Exception e) {
+			logger.error( "The version of Firefox could not be read ", e);
+		}
+		
+		return versionInstalled;
 	}
 
 	public boolean waitFor(String elementId, RemoteWebDriver driver) {
@@ -825,5 +900,15 @@ public class BrowserService implements Observer{
 			this.closeBrowsers();
 		}
 	}
+
+	private RemoteWebDriver getWebDriverGeePlayground() {
+		return webDriverGeePlayground;
+	}
+
+	protected void setWebDriverGeePlayground(RemoteWebDriver webDriverGeePlayground) {
+		this.webDriverGeePlayground = webDriverGeePlayground;
+	}
+	
+	
 }
 

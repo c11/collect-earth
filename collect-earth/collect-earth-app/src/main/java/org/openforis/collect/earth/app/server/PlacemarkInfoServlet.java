@@ -22,14 +22,12 @@ import org.springframework.web.bind.annotation.RequestMapping;
 @Controller
 public class PlacemarkInfoServlet extends JsonPocessorServlet {
 
-	public static final String PLACEMARK_ID_PARAMETER = "collect_text_id"; //$NON-NLS-1$
-
-
+	
 	/**
-	 * Returns a JSON object with the data colleted for a placemark in the collect-earth format.
-	 * @param request
-	 * @param response
-	 * @throws IOException
+	 * Returns a JSON object with the data collected for a placemark in the collect-earth format.
+	 * @param request The request sent from Google Earth pop-up to Collect Earth
+	 * @param response The response to the Collect Earth request
+	 * @throws IOException Throws exception if the response cannot be written to the channel
 	 */
 	@RequestMapping("/placemarkInfo")
 	protected void placemarkInfoOld(HttpServletRequest request, HttpServletResponse response) throws IOException {
@@ -60,7 +58,7 @@ public class PlacemarkInfoServlet extends JsonPocessorServlet {
 	}
 
 	private String getPlacemarkId(Map<String, String> collectedData) {
-		return collectedData.get(PlacemarkInfoServlet.PLACEMARK_ID_PARAMETER);
+		return collectedData.get(EarthConstants.PLACEMARK_ID_PARAMETER);
 	}
 
 	private String replacePlacemarkIdTestValue(String placemarkId) {

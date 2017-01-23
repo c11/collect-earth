@@ -4,41 +4,35 @@
 	<parent>
 		<groupId>org.openforis.collect.earth</groupId>
 		<artifactId>collect-earth</artifactId>
-		<version>1.1.16</version>
+		<version>1.5.3-SNAPSHOT</version>
 	</parent>
 
-	<name>Earth App</name>
+	<name>Collect Earth Application</name>
 	<artifactId>collect-earth-app</artifactId>
 	<packaging>jar</packaging>
 
 	<properties>
-		<jetty.version>9.2.6.v20141205</jetty.version>
-		<selenium.version>2.46.0</selenium.version>
+		<jetty.version>9.3.11.v20160721</jetty.version>
+		<selenium.version>2.53.1</selenium.version>
 		<sonar.language>java</sonar.language>
 		<classpath.prefix>earth-libs</classpath.prefix>
 	</properties>
 
 	<dependencies>
+		
 		<dependency>
 			<groupId>org.openforis.collect.earth</groupId>
 			<artifactId>collect-earth-core</artifactId>
-			<version>${project.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>org.openforis.collect.earth</groupId>
 			<artifactId>collect-earth-sampler</artifactId>
-			<version>${project.version}</version>
 		</dependency>
-
+		
 		<!-- Jetty -->
 		<dependency>
 			<groupId>org.eclipse.jetty</groupId>
 			<artifactId>jetty-server</artifactId>
-			<version>${jetty.version}</version>
-		</dependency>
-		<dependency>
-			<groupId>org.eclipse.jetty</groupId>
-			<artifactId>jetty-servlet</artifactId>
 			<version>${jetty.version}</version>
 		</dependency>
 		<dependency>
@@ -51,24 +45,8 @@
 			<artifactId>collect-rdb</artifactId>
 			<version>${collect.version}</version>
 		</dependency>
-		<dependency>
-			<groupId>org.apache.commons</groupId>
-			<artifactId>commons-lang3</artifactId>
-			<version>3.0</version>
-		</dependency>
 
 		<!-- Spring dependencies -->
-		<dependency>
-			<groupId>org.springframework</groupId>
-			<artifactId>spring-webmvc</artifactId>
-			<version>${spring.version}</version>
-		</dependency>
-		<dependency>
-			<groupId>org.springframework</groupId>
-			<artifactId>spring-test</artifactId>
-			<scope>test</scope>
-			<version>${spring.version}</version>
-		</dependency>
 		<dependency>
 			<groupId>org.springframework</groupId>
 			<artifactId>spring-tx</artifactId>
@@ -81,20 +59,15 @@
 		</dependency>
 
 		<dependency>
-			<groupId>com.google.code.gson</groupId>
-			<artifactId>gson</artifactId>
-			<version>2.2.3</version>
-		</dependency>
-		<dependency>
 			<groupId>org.xerial</groupId>
 			<artifactId>sqlite-jdbc</artifactId>
-			<version>3.8.6</version>
+			<version>3.8.11.2</version>
 			<!-- This latest version provokes an exception in Linux! <version>3.8.7</version> -->
 		</dependency>
 		<dependency>
-			<groupId>postgresql</groupId>
+			<groupId>org.postgresql</groupId>
 			<artifactId>postgresql</artifactId>
-			<version>9.1-901.jdbc4</version>
+			<version>9.4.1209</version>
 		</dependency>
 		<dependency>
 			<groupId>org.seleniumhq.selenium</groupId>
@@ -177,4 +150,8 @@
 
 		</plugins>
 	</build>
+
+  <scm>
+    <tag>collect-earth-app-1.4.6</tag>
+  </scm>
 </project>

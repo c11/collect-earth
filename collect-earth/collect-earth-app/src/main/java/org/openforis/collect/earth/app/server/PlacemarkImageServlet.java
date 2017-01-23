@@ -10,9 +10,11 @@ import java.util.Locale;
 import java.util.Map;
 
 import javax.servlet.ServletContext;
+import javax.servlet.ServletOutputStream;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import org.apache.commons.lang3.ArrayUtils;
 import org.openforis.collect.earth.app.EarthConstants;
 import org.openforis.collect.earth.app.service.EarthSurveyService;
 import org.openforis.collect.earth.app.service.PreloadedFilesService;
@@ -32,7 +34,7 @@ import org.springframework.web.bind.annotation.RequestParam;
  * 
  */
 @Controller
-public class PlacemarkImageServlet extends DataAccessingServlet {
+public class PlacemarkImageServlet extends JsonPocessorServlet {
 
 	@Autowired
 	private EarthSurveyService earthSurveyService;
@@ -52,8 +54,26 @@ public class PlacemarkImageServlet extends DataAccessingServlet {
 	 * @throws URISyntaxException In case the image icon URL contains an error
 	 */
 	@RequestMapping("/placemarkIcon")
-	public void getImage(HttpServletResponse response, HttpServletRequest request, @RequestParam("collect_text_id") String placemarkId,
+	public void getImage(HttpServletResponse response, HttpServletRequest request, @RequestParam( EarthConstants.PLACEMARK_ID_PARAMETER ) String placemarkId,
 			@RequestParam(value = "listView", required = false) Boolean listView) throws IOException, URISyntaxException {
+
+		getImageExt(response, request, placemarkId, listView);
+		
+	}
+	
+	/**
+	 * Returns an icon/overlay image that represents the state of the placemark not-filled/filling/filled
+	 * @param response The HTTP response object
+	 * @param request The HTTP request object
+	 * @param id The ID of the plot with separated by commas
+	 * @param listView True if want to get the icon for the placemark list, false to get the overlay image (transparent or see-through red for filled placemarks)
+	 * @throws IOException In case the image icon cannot be open
+	 * @throws URISyntaxException In case the image icon URL contains an error
+	 */
+	@RequestMapping("/placemarkIconExtd")
+	public void getImageExt(HttpServletResponse response, HttpServletRequest request, @RequestParam(value = "id", required = false) String id, @RequestParam(value = "listView", required = false) Boolean listView) throws IOException, URISyntaxException {
+		
+		String[] keys = id.split(",");
 
 		if( listView == null ){
 			throw new IllegalArgumentException("This servlet only responds to listView type of requests where the status icons for the placemarks are the expected result"); //$NON-NLS-1$
@@ -63,7 +83,7 @@ public class PlacemarkImageServlet extends DataAccessingServlet {
 		String imageName = EarthConstants.LIST_NOT_FINISHED_IMAGE;
 		try {
 			
-			final Map<String, String> placemarkParameters = earthSurveyService.getPlacemark(placemarkId,false);
+			final Map<String, String> placemarkParameters = earthSurveyService.getPlacemark(keys,false);
 
 			if (earthSurveyService.isPlacemarkSavedActively(placemarkParameters)) {
 				if (listView != null && listView) {
@@ -80,7 +100,7 @@ public class PlacemarkImageServlet extends DataAccessingServlet {
 			}
 			
 		} catch (Exception e) {
-			logger.error("Error loading image for placemark with ID " + placemarkId , e); //$NON-NLS-1$
+			logger.error("Error loading image for placemark with ID " + ArrayUtils.toString( keys ) , e); //$NON-NLS-1$
 			System.out.println( e );
 			
 		}finally{
@@ -89,6 +109,7 @@ public class PlacemarkImageServlet extends DataAccessingServlet {
 		
 		
 	}
+
 
 	private byte[] readFile(String filePath, ServletContext servletContext) throws MalformedURLException, URISyntaxException {
 		final File imageFile = new File(filePath);
@@ -121,12 +142,14 @@ public class PlacemarkImageServlet extends DataAccessingServlet {
 	}
 
 	private void writeToResponse(HttpServletResponse response, byte[] fileContents) throws IOException {
+		ServletOutputStream outputStream = response.getOutputStream();
 		try {
-			response.getOutputStream().write(fileContents);
+			outputStream.write(fileContents);
+			outputStream.flush();
 		} catch (final Exception e) {
 			getLogger().error("Error writing reponse body to output stream ", e); //$NON-NLS-1$
 		} finally {
-			response.getOutputStream().close();
+			outputStream.close();
 		}
 
 	}

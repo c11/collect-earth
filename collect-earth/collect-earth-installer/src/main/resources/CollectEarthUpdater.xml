@@ -6,6 +6,8 @@
     <logoImage>installer_logo.png</logoImage>
     <splashImage>installer_splash.png</splashImage>
     <createOsxBundleZip>1</createOsxBundleZip>
+    <requireInstallationByRootUser>0</requireInstallationByRootUser>
+     <requestedExecutionLevel>asInvoker</requestedExecutionLevel>
     <componentList>
         <component>
             <name>default</name>
@@ -23,6 +25,9 @@
 		                 <distributionFile>
 		                    <origin>earth.properties_initial</origin>
 		                </distributionFile>
+		                <distributionFile>
+		                    <origin>earth.properties_forced_update</origin>
+		                </distributionFile>
                         <distributionFile>
                             <origin>COLLECT_EARTH_MAIN_FOLDER/collect-earth-app/target/CollectEarth.jar</origin>
                         </distributionFile>
@@ -32,47 +37,94 @@
                         <distributionFile>
                             <origin>COLLECT_EARTH_MAIN_FOLDER/collect-earth-installer/target/installer/update.ini</origin>
                         </distributionFile>
-                        <distributionDirectory>
-                            <origin>COLLECT_EARTH_MAIN_FOLDER/collect-earth-app/resources</origin>
-                        </distributionDirectory>
                         <distributionFile>
 		                    <origin>COLLECT_EARTH_MAIN_FOLDER/collect-earth-app/UserManual.pdf</origin>
 		                </distributionFile>
                     </distributionFileList>
                 </folder>
+                <folder>
+		            <description>Resources Windows</description>
+		            <destination>${installdir}/resources</destination>
+		            <name>resourceswindows</name>
+		            <platforms>windows</platforms>
+		            <distributionFileList>
+			         	<distributionDirectory  allowWildcards="1">
+			                <excludeFiles>*/chromedriver;*/chromedriver_mac;*/geckodriver;*/geckodriver_mac</excludeFiles>
+			            	<origin>../../../collect-earth-app/resources/*</origin>
+			            </distributionDirectory>
+		            </distributionFileList>
+		        </folder>
+		        <folder>
+		            <description>Resources Linux</description>
+		            <destination>${installdir}/resources</destination>
+		            <name>resourceslinux</name>
+		            <platforms>linux linux-x64</platforms>
+		            <distributionFileList>
+			         	<distributionDirectory  allowWildcards="1">
+			                <excludeFiles>*/chromedriver.exe;*/chromedriver_mac;*/geckodriver.exe;*/geckodriver_mac</excludeFiles>
+			            	<origin>../../../collect-earth-app/resources/*</origin>
+			            </distributionDirectory>
+		            </distributionFileList>
+		        </folder>
+		        <folder>
+		            <description>Resources Mac</description>
+		            <destination>${installdir}/resources</destination>
+		            <name>resourcesosx</name>
+		            <platforms>osx</platforms>
+		            <distributionFileList>
+			         	<distributionDirectory allowWildcards="1">
+			                <excludeFiles>*/chromedriver.exe;*/chromedriver;*/geckodriver.exe;*/geckodriver</excludeFiles>
+			            	<origin>../../../collect-earth-app/resources/*</origin>
+			            </distributionDirectory>
+		            </distributionFileList>
+		        </folder>
+                
             </folderList>
         </component>
     </componentList>
 
-        <initializationActionList>
-        <registryGet>
-            <key>HKEY_LOCAL_MACHINE\SOFTWARE\${project.vendor}\${project.fullName}</key>
-            <name>InstallationPath</name>
-            <variable>installdir</variable>
-        </registryGet>
-        <actionGroup>
-            <actionList>
-            	<setInstallerVariable name="installdir" value=""/>
-                <iniFileGet>
-                    <file>~/.${project.vendor}-${project.fullName}.ini</file>
-                    <key>InstallationPath</key>
-                    <section>details</section>
-                    <variable>installdir</variable>
-                </iniFileGet>
-            </actionList>
-            <ruleList>
-                <fileTest condition="exists" path="~/.${project.vendor}-${project.fullName}.ini"/>
-            </ruleList>
-        </actionGroup>
+    <initializationActionList>
+        
+         <if>
+          <!-- The updater in osx comes as a ZIP that gets decompressed, so we need to go up an extra level -->
+        	<actionList>
+        		<setInstallerVariable>
+        			<name>installdir</name>
+        			<value>${installer_directory}/../..</value> 
+        		</setInstallerVariable>
+        	</actionList>
+        	<conditionRuleList>
+        		<platformTest><type>osx</type></platformTest>
+			</conditionRuleList> 
+			<elseActionList>
+				<setInstallerVariable>
+				<name>installdir</name>
+				<value>${installer_directory}/..</value>
+			</setInstallerVariable>
+			</elseActionList>
+		</if>
     </initializationActionList>
-    
+    <postInstallationActionList>
+		<substitute>
+            <files>${installdir}/earth.properties_initial;${installdir}/earth.properties_forced_update</files>
+            <type>regexp</type>
+            <substitutionList>
+                <substitution>
+                    <pattern>install_directory</pattern>
+                    <value>${installdir}</value>
+                </substitution>
+            </substitutionList>
+        </substitute>
+        <showInfo>
+            <text>You need to quit Collect Earth and re-start it for the update to finalize!</text>
+        </showInfo>
+    </postInstallationActionList>
     <compressionAlgorithm>zip</compressionAlgorithm>
     <defaultUnixDirectoryPermissions>777</defaultUnixDirectoryPermissions>
     <defaultUnixFilePermissions>777</defaultUnixFilePermissions>
-    <enableRollback>1</enableRollback>
+    <enableRollback>0</enableRollback>
     <enableTimestamp>1</enableTimestamp>
     <installationType>upgrade</installationType>
     <overwritePolicy>onlyIfNewer</overwritePolicy>
     <vendor>Open Foris Initiative</vendor>
 </project>
-

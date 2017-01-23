@@ -63,6 +63,7 @@ public class PlacemarkLoadResult {
 	
 	/**
 	 * Calculated field based on inputFieldInfoByParameterName content
+	 * @return True if the user clicked on the Submit button
 	 */
 	public boolean isActivelySaved() {
 		return activelySaved;
@@ -123,7 +124,6 @@ public class PlacemarkLoadResult {
 		return "PlacemarkLoadResult [inputFieldInfoByParameterName="
 				+ inputFieldInfoByParameterName + ", success=" + success
 				+ ", message=" + message + ", activelySaved=" + activelySaved
-				+ ", validData=" + validData + ", skipFilled=" + skipFilled
 				+ ", currentStep=" + currentStep + "]";
 	}
 	

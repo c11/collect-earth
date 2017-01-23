@@ -8,12 +8,12 @@ import java.awt.Dimension;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
+import java.awt.Toolkit;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.io.File;
 import java.io.IOException;
-import java.net.InetAddress;
-import java.net.UnknownHostException;
+import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -46,10 +46,11 @@ import javax.swing.event.DocumentListener;
 import javax.swing.event.ListSelectionEvent;
 import javax.swing.event.ListSelectionListener;
 
-import org.apache.commons.lang3.SystemUtils;
+import org.openforis.collect.earth.app.CollectEarthUtils;
 import org.openforis.collect.earth.app.EarthConstants;
 import org.openforis.collect.earth.app.EarthConstants.CollectDBDriver;
 import org.openforis.collect.earth.app.EarthConstants.OperationMode;
+import org.openforis.collect.earth.app.desktop.EarthApp;
 import org.openforis.collect.earth.app.service.AnalysisSaikuService;
 import org.openforis.collect.earth.app.service.EarthProjectsService;
 import org.openforis.collect.earth.app.service.LocalPropertiesService;
@@ -63,19 +64,30 @@ import org.slf4j.LoggerFactory;
  */
 public class OptionWizard extends JDialog {
 
+	private static final ComboBoxItem COMBO_BOX_ITEM_CENTRAL_POINT = new ComboBoxItem(1, Messages.getString("OptionWizard.54"));
+
+	private static final ComboBoxItem COMBO_BOX_ITEM_SQUARE = new ComboBoxItem(0, Messages.getString("OptionWizard.53"));
+
 	private static final long serialVersionUID = -6760020609229102842L;
 
 	private final HashMap<Enum<?>, JComponent[]> propertyToComponent = new HashMap<Enum<?>, JComponent[]>();
 	private final Logger logger = LoggerFactory.getLogger(this.getClass());
 
 	JPanel postgresPanel;
+	JPanel sqlitePanel;
 
 	LocalPropertiesService localPropertiesService;
+	
 	String backupFolder;
 
 	private AnalysisSaikuService saikuService;
 
 	private EarthProjectsService projectsService;
+	
+	private boolean restartRequired;
+
+	private String oldSelectedDistance;
+
 
 	public OptionWizard(JFrame frame, LocalPropertiesService localPropertiesService, EarthProjectsService projectsService,  String backupFolder, AnalysisSaikuService saikuService) {
 		super(frame, Messages.getString("OptionWizard.0")); //$NON-NLS-1$
@@ -89,8 +101,18 @@ public class OptionWizard extends JDialog {
 		this.setResizable(false);
 		initilizeInputs();
 		buildMainPane();
+		centreWindow();
+		
 	}
 
+
+	private void centreWindow() {
+	    Dimension dimension = Toolkit.getDefaultToolkit().getScreenSize();
+	    int x = (int) ((dimension.getWidth() - getWidth()) / 2);
+	    int y = (int) ((dimension.getHeight() - getHeight()) / 2);
+	    setLocation(x, y);
+	}
+	
 	private void buildMainPane() {
 
 		final JPanel panel = new JPanel(new BorderLayout());
@@ -135,7 +157,14 @@ public class OptionWizard extends JDialog {
 		panel.add(propertyToComponent.get(EarthProperty.OPEN_BING_MAPS)[0], constraints);
 		
 		constraints.gridy++;
-		panel.add(propertyToComponent.get(EarthProperty.OPEN_HERE_MAPS)[0], constraints);
+		panel.add(propertyToComponent.get(EarthProperty.OPEN_YANDEX_MAPS)[0], constraints);
+
+		constraints.gridy++;
+		panel.add(propertyToComponent.get(EarthProperty.OPEN_STREET_VIEW)[0], constraints);
+		
+		// Removed Here Maps temporarily
+		// constraints.gridy++;
+		// panel.add(propertyToComponent.get(EarthProperty.OPEN_HERE_MAPS)[0], constraints);
 		
 		constraints.gridy++;
 		panel.add(propertyToComponent.get(EarthProperty.OPEN_GEE_PLAYGROUND)[0], constraints);
@@ -175,13 +204,25 @@ public class OptionWizard extends JDialog {
 			protected void applyProperties() {
 
 				savePropertyValues();
-				restartEarth();
+				if( isRestartRequired() ){
+					restartEarth();
+				}else{
+					
+					EarthApp.executeKmlLoadAsynchronously( OptionWizard.this );
+					
+				}
 			}
-
 		});
+
+			
 
 		return applyChanges;
 	}
+
+	public void closeDialog() {
+		this.dispose();
+	}
+
 
 	private Component getCancelButton() {
 		final JButton cancelButton = new JButton(Messages.getString("OptionWizard.24")); //$NON-NLS-1$
@@ -195,14 +236,6 @@ public class OptionWizard extends JDialog {
 	}
 
 	
-	private String getComputerIp() {
-		try {
-			return InetAddress.getLocalHost().getHostAddress();
-		} catch (final UnknownHostException e) {
-			logger.warn("Unknown IP address", e); //$NON-NLS-1$
-			return Messages.getString("OptionWizard.11"); //$NON-NLS-1$
-		}
-	}
 
 	private JComponent getOperationModePanel() {
 		final GridBagConstraints constraints = new GridBagConstraints();
@@ -218,23 +251,26 @@ public class OptionWizard extends JDialog {
 		typeOfUsePanel.setBorder(border);
 
 		JPanel serverPanel = getServerPanel();
-
-
+	
 		typeOfUsePanel.add(serverPanel, constraints);
 
 
 		return typeOfUsePanel;
 	}
+	
+	public void enableDBOptions(boolean isPostgreDb) {
+		enableContainer(postgresPanel, isPostgreDb);
+		enableContainer( sqlitePanel, !isPostgreDb);
+	}
 
 	private ActionListener getDbTypeListener() {
 		return new ActionListener() {
-
 			@Override
 			public void actionPerformed(ActionEvent e) {
 				final JRadioButton theJRB = (JRadioButton) e.getSource();
 
 				boolean isPostgreDb = theJRB.getName().equals(CollectDBDriver.POSTGRESQL.name() );
-				enableContainer(postgresPanel, isPostgreDb);
+				enableDBOptions( isPostgreDb );
 			}
 		};
 	}
@@ -384,7 +420,8 @@ public class OptionWizard extends JDialog {
 		panel.add(label, constraints);
 
 		constraints.gridx = 1;
-		panel.add(propertyToComponent.get(EarthProperty.NUMBER_OF_SAMPLING_POINTS_IN_PLOT)[0], constraints);
+		JComboBox numberPoints = (JComboBox) propertyToComponent.get(EarthProperty.NUMBER_OF_SAMPLING_POINTS_IN_PLOT)[0];
+		panel.add(numberPoints, constraints);
 
 		constraints.gridx = 0;
 		constraints.gridy = 1;
@@ -392,16 +429,96 @@ public class OptionWizard extends JDialog {
 		panel.add(label, constraints);
 
 		constraints.gridx = 1;
-		panel.add(new JScrollPane(propertyToComponent.get(EarthProperty.DISTANCE_BETWEEN_SAMPLE_POINTS)[0]), constraints);
+		JComboBox distanceBetweenPoints = (JComboBox) propertyToComponent.get(EarthProperty.DISTANCE_BETWEEN_SAMPLE_POINTS)[0];
+		panel.add(new JScrollPane(distanceBetweenPoints), constraints);
 
 		constraints.gridx = 0;
 		constraints.gridy = 2;
 		label = new JLabel(Messages.getString("OptionWizard.37")); //$NON-NLS-1$
 		panel.add(label, constraints);
 		constraints.gridx = 1;
-		panel.add(new JScrollPane(propertyToComponent.get(EarthProperty.DISTANCE_TO_PLOT_BOUNDARIES)[0]), constraints);
+		JComboBox distanceToFrame = (JComboBox) propertyToComponent.get(EarthProperty.DISTANCE_TO_PLOT_BOUNDARIES)[0];
+		panel.add(new JScrollPane(distanceToFrame), constraints);
+		
+		constraints.gridx = 0;
+		constraints.gridy = 3;
+		label = new JLabel(Messages.getString("OptionWizard.95") ); //$NON-NLS-1$
+		panel.add(label, constraints);
+		constraints.gridx = 1;
+		JComboBox dotsSide = (JComboBox) propertyToComponent.get(EarthProperty.INNER_SUBPLOT_SIDE)[0];
+		panel.add(new JScrollPane(dotsSide), constraints);
+		
+		constraints.gridx = 0;
+		constraints.gridy = 4;
+		label = new JLabel( "Area (hectares)" );
+		panel.add(label, constraints);
+		constraints.gridx = 1;
+		JLabel area = new JLabel( calculateArea(  numberPoints, distanceBetweenPoints, distanceToFrame, dotsSide) );
+		panel.add(new JScrollPane(area), constraints);
+		
+		ActionListener calculateAreas = new ActionListener() {
+			
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				area.setText( calculateArea( numberPoints, distanceBetweenPoints, distanceToFrame, dotsSide )  );
+				
+			}
+		};
+		
+		numberPoints.addActionListener(calculateAreas);
+		distanceBetweenPoints.addActionListener(calculateAreas);
+		distanceToFrame.addActionListener(calculateAreas);
+		
 		return panel;
 	}
+
+	private String calculateArea(JComboBox numberOfPoints, JComboBox distanceBetweenPoints, JComboBox distanceToFrame, JComboBox dotsSide) {
+		double side = 0;
+		try{
+			int numberOfPointsI = ((ComboBoxItem)numberOfPoints.getSelectedItem() ).getNumberOfPoints();
+			int distanceBetweenPointsI =  Integer.parseInt( (String) distanceBetweenPoints.getSelectedItem() ) ;
+			int distanceToFrameI =  Integer.parseInt( (String) distanceToFrame.getSelectedItem() ) ;
+			
+			
+			if( numberOfPointsI==0 || numberOfPointsI==1){
+				
+				side = 2d* distanceToFrameI;
+				if(oldSelectedDistance == null ){
+					oldSelectedDistance = (String) distanceBetweenPoints.getSelectedItem();
+					distanceBetweenPoints.setEnabled(false);
+				}
+				distanceBetweenPoints.setSelectedItem("0");
+				
+				if( numberOfPointsI == 0 ){
+					dotsSide.setEnabled(false);
+				}else if( numberOfPointsI == 1 ){
+					dotsSide.setEnabled(true);
+				}
+				
+			}else{
+				if( oldSelectedDistance!=null ){
+					distanceBetweenPoints.setSelectedItem( oldSelectedDistance );
+					oldSelectedDistance = null;
+				}
+				
+				distanceBetweenPoints.setEnabled(true);
+				distanceToFrame.setEnabled( true );
+				dotsSide.setEnabled(true);
+				
+				double pointsByLines = Math.sqrt( numberOfPointsI ) ;
+				side = 2d * distanceToFrameI + ( pointsByLines - 1 ) * distanceBetweenPointsI;
+				
+			}
+			
+			
+		}catch(RuntimeException e){
+			logger.error("Error calculating area of the plot", e);
+		}
+		
+		DecimalFormat df = new DecimalFormat("###.##");
+		return df.format( side*side / 10000d );
+	}
+
 
 	private JPanel getPostgreSqlPanel() {
 		final JPanel panel = new JPanel(new GridBagLayout());
@@ -447,7 +564,7 @@ public class OptionWizard extends JDialog {
 
 		constraints.gridx = 1;
 		panel.add(propertyToComponent.get(EarthProperty.DB_HOST)[0], constraints);
-
+		
 		constraints.gridy++;
 		label = new JLabel(Messages.getString("OptionWizard.29")); //$NON-NLS-1$
 		constraints.gridx = 0;
@@ -455,6 +572,30 @@ public class OptionWizard extends JDialog {
 
 		constraints.gridx = 1;
 		panel.add(propertyToComponent.get(EarthProperty.DB_PORT)[0], constraints);
+
+		constraints.gridx = 2;
+		panel.add( new JLabel ("Default: 5432"), constraints);
+		
+		constraints.gridy++;
+		constraints.gridx = 1;
+		JButton button = new JButton("Test Connection"); //$NON-NLS-1$
+		button.addActionListener( new ActionListener() {
+			
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				String host =  ( (JTextField)(propertyToComponent.get(EarthProperty.DB_HOST)[0]) ).getText();
+				String port = ( (JTextField)(propertyToComponent.get(EarthProperty.DB_PORT)[0]) ).getText();
+				String dbName = ( (JTextField)(propertyToComponent.get(EarthProperty.DB_NAME)[0]) ).getText();
+				String username = ( (JTextField)(propertyToComponent.get(EarthProperty.DB_USERNAME)[0]) ).getText();
+				String password = ( (JTextField)(propertyToComponent.get(EarthProperty.DB_PASSWORD)[0]) ).getText();
+				
+				String message = CollectEarthUtils.testPostgreSQLConnection( host, port, dbName, username, password);
+				JOptionPane.showMessageDialog(OptionWizard.this.getOwner(), message  , "PostgreSQL Connection test", JOptionPane.INFORMATION_MESSAGE);
+				
+			}
+		});
+		panel.add(button, constraints);
+		
 
 		return panel;
 	}
@@ -479,7 +620,7 @@ public class OptionWizard extends JDialog {
 	}
 
 	private JComponent getSampleDataPanel() {
-		final JPlotCsvTable samplePlots = new JPlotCsvTable( localPropertiesService.getValue(EarthProperty.CSV_KEY) );
+		final JPlotCsvTable samplePlots = new JPlotCsvTable( localPropertiesService.getValue(EarthProperty.SAMPLE_FILE) );
 
 		final JPanel panel = new JPanel(new GridBagLayout());
 		final GridBagConstraints constraints = new GridBagConstraints();
@@ -510,7 +651,7 @@ public class OptionWizard extends JDialog {
 	}
 
 	private JFilePicker getFilePickerSamplePlots(final JPlotCsvTable samplePlots) {
-		final JFilePicker refreshTableOnFileChange = (JFilePicker) (propertyToComponent.get(EarthProperty.CSV_KEY)[0]);
+		final JFilePicker refreshTableOnFileChange = (JFilePicker) (propertyToComponent.get(EarthProperty.SAMPLE_FILE)[0]);
 		refreshTableOnFileChange.addChangeListener(new DocumentListener() {
 
 			@Override
@@ -551,7 +692,7 @@ public class OptionWizard extends JDialog {
 		final Border border = new TitledBorder(new BevelBorder(BevelBorder.RAISED), Messages.getString("OptionWizard.3")); //$NON-NLS-1$
 		typeOfDbPanel.setBorder(border);
 
-		JLabel label = new JLabel(Messages.getString("OptionWizard.4") + getComputerIp()); //$NON-NLS-1$
+		JLabel label = new JLabel(Messages.getString("OptionWizard.4") + CollectEarthUtils.getComputerIp()); //$NON-NLS-1$
 		typeOfDbPanel.add(label, constraints);
 		constraints.gridy++;
 
@@ -570,7 +711,10 @@ public class OptionWizard extends JDialog {
 		final JComponent[] dbTypes = propertyToComponent.get(EarthProperty.DB_DRIVER);
 
 		postgresPanel = getPostgreSqlPanel();
-		JPanel sqlitePanel = getSqlLitePanel();
+		sqlitePanel = getSqlLitePanel();
+		
+		boolean usingPostgreSQL = localPropertiesService.getCollectDBDriver().equals(CollectDBDriver.POSTGRESQL);
+		enableDBOptions( usingPostgreSQL );
 
 		for (final JComponent typeRadioButton : dbTypes) {
 			final JRadioButton dbTypeButton = (JRadioButton) typeRadioButton;
@@ -583,6 +727,7 @@ public class OptionWizard extends JDialog {
 			if (dbTypeButton.getName().equals(EarthConstants.CollectDBDriver.POSTGRESQL.name() ) ) {
 				typeOfDbPanel.add(postgresPanel, constraints);
 				constraints.gridy++;
+				
 			}else{
 				typeOfDbPanel.add(sqlitePanel, constraints);
 				constraints.gridy++;
@@ -601,32 +746,14 @@ public class OptionWizard extends JDialog {
 			public void actionPerformed(ActionEvent e) {
 				try {
 
-					if (SystemUtils.IS_OS_WINDOWS){
-						new ProcessBuilder("explorer.exe", "/select," + backupFolder).start(); //$NON-NLS-1$ //$NON-NLS-2$
-					}else if (SystemUtils.IS_OS_MAC){
-						new ProcessBuilder("usr/bin/open", backupFolder).start(); //$NON-NLS-1$ //$NON-NLS-2$
-					}else if ( SystemUtils.IS_OS_UNIX){
-
-						try {
-							new ProcessBuilder("nautilus", backupFolder).start(); //$NON-NLS-1$ //$NON-NLS-2$
-						} catch (Exception e1) {
-							try {
-								new ProcessBuilder("gnome-open", backupFolder).start(); //$NON-NLS-1$ //$NON-NLS-2$
-							} catch (Exception e2) {
-								try {
-									new ProcessBuilder("kde-open", backupFolder).start(); //$NON-NLS-1$ //$NON-NLS-2$
-								} catch (Exception e3) {
-									new ProcessBuilder("caja", backupFolder).start(); //$NON-NLS-1$ //$NON-NLS-2$
-								}
-							}
-						}
-
-					}
+					CollectEarthUtils.openFolderInExplorer( backupFolder );
 
 				} catch (final IOException e1) {
 					logger.error("Error when opening the explorer window to visualize backups", e1); //$NON-NLS-1$
 				}
 			}
+
+
 		};
 
 		return new JButton( backupAction );
@@ -686,6 +813,14 @@ public class OptionWizard extends JDialog {
 		openBingCheckbox.setSelected(Boolean.parseBoolean(localPropertiesService.getValue(EarthProperty.OPEN_BING_MAPS)));
 		propertyToComponent.put(EarthProperty.OPEN_BING_MAPS, new JComponent[] { openBingCheckbox });
 		
+		final JCheckBox openYandexCheckbox = new JCheckBox("Open Yandex maps for the plot area");
+		openYandexCheckbox.setSelected(Boolean.parseBoolean(localPropertiesService.getValue(EarthProperty.OPEN_YANDEX_MAPS)));
+		propertyToComponent.put(EarthProperty.OPEN_YANDEX_MAPS, new JComponent[] { openYandexCheckbox });
+		
+		final JCheckBox openStreetViewCheckbox = new JCheckBox("Open Street View");
+		openStreetViewCheckbox.setSelected(Boolean.parseBoolean(localPropertiesService.getValue(EarthProperty.OPEN_STREET_VIEW)));
+		propertyToComponent.put(EarthProperty.OPEN_STREET_VIEW, new JComponent[] { openStreetViewCheckbox });
+		
 		final JCheckBox openHereCheckbox = new JCheckBox(Messages.getString("OptionWizard.59")); //$NON-NLS-1$
 		openHereCheckbox.setSelected(Boolean.parseBoolean(localPropertiesService.getValue(EarthProperty.OPEN_HERE_MAPS)));
 		propertyToComponent.put(EarthProperty.OPEN_HERE_MAPS, new JComponent[] { openHereCheckbox });
@@ -700,16 +835,16 @@ public class OptionWizard extends JDialog {
 		propertyToComponent.put(EarthProperty.OPEN_BALLOON_IN_BROWSER, new JComponent[] { openInSeparateWindowCheckbox });
 
 		final JFilePicker csvWithPlotData = new JFilePicker(
-				Messages.getString("OptionWizard.49"), localPropertiesService.getValue(EarthProperty.CSV_KEY), //$NON-NLS-1$
+				Messages.getString("OptionWizard.49"), localPropertiesService.getValue(EarthProperty.SAMPLE_FILE), //$NON-NLS-1$
 				Messages.getString("OptionWizard.50")); //$NON-NLS-1$
 		csvWithPlotData.setMode(JFilePicker.MODE_OPEN);
 
 		csvWithPlotData.addFileTypeFilter(".csv,.ced", Messages.getString("OptionWizard.52"), true); //$NON-NLS-1$ //$NON-NLS-2$
-		propertyToComponent.put(EarthProperty.CSV_KEY, new JComponent[] { csvWithPlotData });
+		propertyToComponent.put(EarthProperty.SAMPLE_FILE, new JComponent[] { csvWithPlotData });
 
 		final JComboBox<ComboBoxItem> comboNumberOfPoints = new JComboBox<ComboBoxItem>(
 				new ComboBoxItem[] {
-						new ComboBoxItem(0, Messages.getString("OptionWizard.53")), new ComboBoxItem(1, Messages.getString("OptionWizard.54")), new ComboBoxItem(4, "2x2"), //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+						COMBO_BOX_ITEM_SQUARE, COMBO_BOX_ITEM_CENTRAL_POINT, new ComboBoxItem(4, "2x2"), //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
 						new ComboBoxItem(9, "3x3"), new ComboBoxItem(16, "4x4"), new ComboBoxItem(25, "5x5"), new ComboBoxItem(36, "6x6"), //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
 						new ComboBoxItem(49, "7x7") }); //$NON-NLS-1$
 		comboNumberOfPoints.setSelectedItem(new ComboBoxItem(Integer.parseInt(localPropertiesService
@@ -717,13 +852,15 @@ public class OptionWizard extends JDialog {
 		propertyToComponent.put(EarthProperty.NUMBER_OF_SAMPLING_POINTS_IN_PLOT, new JComponent[] { comboNumberOfPoints });
 
 		final String[] listOfNumbers = new String[995];
-		final int offset = 5;
+		final String[] listOfNumbersFromTwo = new String[995];
+		
 		for (int index = 0; index < listOfNumbers.length; index++) {
-			listOfNumbers[index] = (index + offset) + ""; //$NON-NLS-1$
+			listOfNumbers[index] = index  + ""; //$NON-NLS-1$
+			listOfNumbersFromTwo[index] = (index+2)  + ""; //$NON-NLS-1$
 		}
 
 		// JTextField listOfDistanceBetweenPoints = new JTextField( localPropertiesService.getValue( EarthProperty.DISTANCE_BETWEEN_SAMPLE_POINTS) );
-		final JComboBox<String> listOfDistanceBetweenPoints = new JComboBox<String>(listOfNumbers);
+		final JComboBox<String> listOfDistanceBetweenPoints = new JComboBox<String>(listOfNumbersFromTwo);
 		listOfDistanceBetweenPoints.setSelectedItem(localPropertiesService.getValue(EarthProperty.DISTANCE_BETWEEN_SAMPLE_POINTS));
 		listOfDistanceBetweenPoints.setAutoscrolls(true);
 
@@ -735,6 +872,14 @@ public class OptionWizard extends JDialog {
 		listOfDistanceToBorder.setAutoscrolls(true);
 
 		propertyToComponent.put(EarthProperty.DISTANCE_TO_PLOT_BOUNDARIES, new JComponent[] { listOfDistanceToBorder });
+		
+		// JTextField listOfDistanceToBorder = new JTextField(localPropertiesService.getValue( EarthProperty.DISTANCE_TO_PLOT_BOUNDARIES) );
+		final JComboBox<String> listOfSizeofSamplingDot = new JComboBox<String>(listOfNumbersFromTwo);
+		listOfSizeofSamplingDot.setSelectedItem(localPropertiesService.getValue(EarthProperty.INNER_SUBPLOT_SIDE));
+		listOfSizeofSamplingDot.setAutoscrolls(true);
+
+		propertyToComponent.put(EarthProperty.INNER_SUBPLOT_SIDE, new JComponent[] { listOfSizeofSamplingDot });
+
 
 		final JRadioButton chromeChooser = new JRadioButton("Chrome"); //$NON-NLS-1$
 		chromeChooser.setSelected(localPropertiesService.getValue(EarthProperty.BROWSER_TO_USE).trim().equals(EarthConstants.CHROME_BROWSER));
@@ -838,9 +983,11 @@ public class OptionWizard extends JDialog {
 		sqliteDbType.setName(CollectDBDriver.SQLITE.name());
 
 		final JRadioButton postgresDbType = new JRadioButton(Messages.getString("OptionWizard.94")); //$NON-NLS-1$
-		postgresDbType.setSelected(localPropertiesService.getCollectDBDriver().equals(CollectDBDriver.POSTGRESQL));
+		boolean usingPostgreSQL = localPropertiesService.getCollectDBDriver().equals(CollectDBDriver.POSTGRESQL);
+		postgresDbType.setSelected(usingPostgreSQL);
 		postgresDbType.setName(CollectDBDriver.POSTGRESQL.name());
 		propertyToComponent.put(EarthProperty.DB_DRIVER, new JComponent[] { sqliteDbType, postgresDbType });
+		
 
 		final JTextField dbUserName = new JTextField(localPropertiesService.getValue(EarthProperty.DB_USERNAME));
 		propertyToComponent.put(EarthProperty.DB_USERNAME, new JComponent[] { dbUserName });
@@ -857,6 +1004,16 @@ public class OptionWizard extends JDialog {
 		final JTextField dbPort = new JTextField(localPropertiesService.getValue(EarthProperty.DB_PORT));
 		propertyToComponent.put(EarthProperty.DB_PORT, new JComponent[] { dbPort });
 
+	}
+
+
+	public boolean isRestartRequired() {
+		return restartRequired;
+	}
+
+
+	public void setRestartRequired(boolean restartRequired) {
+		this.restartRequired = restartRequired;
 	}
 
 }

@@ -48,11 +48,11 @@
                 <distributionFile>
                     <origin>COLLECT_EARTH_MAIN_FOLDER/collect-earth-app/UserManual.pdf</origin>
                 </distributionFile>
-                <distributionDirectory>
-                    <origin>COLLECT_EARTH_MAIN_FOLDER/collect-earth-app/resources/drylands_demo</origin>
-                </distributionDirectory>
                 <distributionFile>
                     <origin>earth.properties_initial</origin>
+                </distributionFile>
+                <distributionFile>
+                    <origin>earth.properties_forced_update</origin>
                 </distributionFile>
                 <distributionFile>
                     <origin>update.ini</origin>
@@ -77,40 +77,37 @@
         </folder>
 		<folder>
             <description>Resources Windows</description>
-            <destination>${installdir}</destination>
+            <destination>${installdir}/resources</destination>
             <name>resourceswindows</name>
             <platforms>windows</platforms>
             <distributionFileList>
-	         	<distributionDirectory>
-	                <excludeFiles>*/chromedriver</excludeFiles>
-	                <excludeFiles>*/chromedriver_mac</excludeFiles>
-	            	<origin>../../../collect-earth-app/resources</origin>
+	         	<distributionDirectory  allowWildcards="1">
+	                <excludeFiles>*/chromedriver;*/chromedriver_mac;*/geckodriver;*/geckodriver_mac</excludeFiles>
+	            	<origin>../../../collect-earth-app/resources/*</origin>
 	            </distributionDirectory>
             </distributionFileList>
         </folder>
         <folder>
             <description>Resources Linux</description>
-            <destination>${installdir}</destination>
+            <destination>${installdir}/resources</destination>
             <name>resourceslinux</name>
-            <platforms>linux</platforms>
+            <platforms>linux linux-x64</platforms>
             <distributionFileList>
-	         	<distributionDirectory>
-	                <excludeFiles>*/chromedriver.exe</excludeFiles>
-	                <excludeFiles>*/chromedriver_mac</excludeFiles>
-	            	<origin>../../../collect-earth-app/resources</origin>
+	         	<distributionDirectory  allowWildcards="1">
+	                <excludeFiles>*/chromedriver.exe;*/chromedriver_mac;*/geckodriver.exe;*/geckodriver_mac</excludeFiles>
+	            	<origin>../../../collect-earth-app/resources/*</origin>
 	            </distributionDirectory>
             </distributionFileList>
         </folder>
         <folder>
             <description>Resources Mac</description>
-            <destination>${installdir}</destination>
+            <destination>${installdir}/resources</destination>
             <name>resourcesosx</name>
             <platforms>osx</platforms>
             <distributionFileList>
-	         	<distributionDirectory>
-	                <excludeFiles>*/chromedriver.exe</excludeFiles>
-	                <excludeFiles>*/chromedriver</excludeFiles>
-	            	<origin>../../../collect-earth-app/resources</origin>
+	         	<distributionDirectory allowWildcards="1">
+	                <excludeFiles>*/chromedriver.exe;*/chromedriver;*/geckodriver.exe;*/geckodriver</excludeFiles>
+	            	<origin>../../../collect-earth-app/resources/*</origin>
 	            </distributionDirectory>
             </distributionFileList>
         </folder>
@@ -118,7 +115,7 @@
             <description>Program Files</description>
             <destination>${installdir}</destination>
             <name>programfileslinux</name>
-            <platforms>linux</platforms>
+            <platforms>linux linux-x64</platforms>
             <distributionFileList>
                 <distributionFile>
                     <origin>launcher_logo.png</origin>
@@ -173,7 +170,9 @@
         		</setInstallerVariable>
         	</actionList>
         	<conditionRuleList>
-        		<platformTest><type>windows</type></platformTest>
+        		<platformTest>
+        			<type>windows</type>
+        		</platformTest>
 			</conditionRuleList> 
 			<elseActionList>
 				<setInstallerVariable>
@@ -212,7 +211,7 @@
     </postBuildActionList>
     <postInstallationActionList>
         <substitute>
-            <files>${installdir}/earth.properties_initial</files>
+            <files>${installdir}/earth.properties_initial;${installdir}/earth.properties_forced_update</files>
             <type>regexp</type>
             <substitutionList>
                 <substitution>
@@ -223,46 +222,9 @@
                     <pattern>INSTALLATION_LANGUAGE</pattern>
                     <value>${installation_language_code}</value>
                 </substitution>
-                <substitution>
-                    <pattern>SEPARATE_BROWSER_SUBSTITUTE</pattern>
-                    <value>true</value>
-                    <ruleList>
-                        <platformTest>
-                            <type>linux</type>
-                        </platformTest>
-                    </ruleList>
-                </substitution>
-                <substitution>
-                    <pattern>SEPARATE_BROWSER_SUBSTITUTE</pattern>
-                    <value>false</value>
-                    <ruleList>
-                        <platformTest>
-                            <negate>1</negate>
-                            <type>linux</type>
-                        </platformTest>
-                    </ruleList>
-                </substitution>
             </substitutionList>
         </substitute>
-        <!-- Set the Instalaltion directory on the registry (windows) or ini file( Linux/Mac) so that it can be used by the updater -->
-        <registrySet>
-            <!-- Update the installed version -->
-            <key>HKEY_LOCAL_MACHINE\SOFTWARE\${project.vendor}\${project.fullName}</key>
-            <name>InstallationPath</name>
-            <type>REG_SZ</type>
-            <value>${installdir}</value>
-        </registrySet>
-        <iniFileSet>
-                <file>~/.${project.vendor}-${project.fullName}.ini</file>
-                <key>InstallationPath</key>
-                <section>details</section>
-                <value>${installdir}</value>
-                <ruleList>
-            		<platformTest negate="1" type="windows"/>
-        		</ruleList>
-        </iniFileSet>       
-	    <addFilesToUninstaller files="/etc/${project.vendor}-${project.fullName}.ini"/>
-	
+        	
         <changePermissions>
             <files>${installdir}/${java_launcher_binary_name};${installdir}/*.log;${installdir}/*.properties;${installdir}/generated;${installdir}/*.db;${installdir}/*.dbSaiku</files>
             <permissions>0777</permissions>
@@ -276,40 +238,6 @@
                 </platformTest>
             </ruleList>
 		</changePermissions>
-        <!--
-        <runProgram>
-            <program>chown</program>
-            <programArguments>-fR ${system_username}  "${installdir}/${java_launcher_binary_name}" "${installdir}/earth_error.log" "${installdir}/earth.properties" "${installdir}/generated" "${installdir}/collectEarthDatabase.db" "${installdir}/collectEarthDatabase.dbSaiku"</programArguments>
-            <ruleList>
-                <platformTest>
-                    <negate>1</negate>
-                    <type>windows</type>
-                </platformTest>
-            </ruleList>
-        </runProgram>
-        <runProgram program="chmod">
-            <programArguments>-R ugo+rwX "${installdir}/${java_launcher_binary_name}" "${installdir}/earth_error.log" "${installdir}/earth.properties" "${installdir}/generated" "${installdir}/collectEarthDatabase.db" "${installdir}/collectEarthDatabase.dbSaiku"</programArguments>
-            <ruleList>
-                <platformTest>
-                    <negate>1</negate>
-                    <type>windows</type>
-                </platformTest>
-            </ruleList>
-        </runProgram>
-		
-        -->
-        
-        <!--
-        <copyFile>
-            <abortOnError>0</abortOnError>
-            <destination>${installdir}/${java_launcher_binary_name}/Contents/Resources/installbuilder.icns</destination>
-            <origin>${installdir}/launcher_icon.icns</origin>
-            <ruleList>
-                <compareText logic="equals" text="${platform_name}" value="osx"/>
-            </ruleList>
-        </copyFile>
-        -->
-        
         
         <createSymLink>
             <linkName>~/Desktop/Collect Earth.app</linkName>
@@ -364,6 +292,21 @@
                 </platformTest>
             </ruleList>
         </runProgram>
+                 
+        <!-- Make sure that Collect Earth runs properly n 4K displays by disabling the High DPI feature -->
+         <registrySet>
+	      <type>REG_SZ</type>
+	      <value>~ HIGHDPIAWARE</value>
+	      <key>HKEY_CURRENT_USER\Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers</key>
+	      <name>${installdir}\${java_launcher_binary_name}</name>
+	      <ruleList>
+                <platformTest>
+                    <type>windows</type>
+                </platformTest>
+            </ruleList>
+		</registrySet>
+        
+            
     </postInstallationActionList>
     <startMenuShortcutList>
         <startMenuShortcut>

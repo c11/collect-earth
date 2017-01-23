@@ -37,7 +37,7 @@ final class SaikuStarter {
 	}
 	
 	public boolean shouldShowRdbGenerationOption(){
-		return saikuService.isRdbFilePresent();
+		return saikuService.isRdbAlreadyGenerated();
 	}
 
 	public boolean isStarting() {
@@ -45,13 +45,15 @@ final class SaikuStarter {
 	}
 	
 	public void initializeAndOpen() {
+		progressStartSaiku = new InfiniteProgressMonitor( frame, Messages.getString("SaikuStarter.1"), Messages.getString("SaikuStarter.2")); //$NON-NLS-1$ //$NON-NLS-2$
+		
 		threadInitializingSaiku = new Thread("Start Saiku server/initialize RDB"){ //$NON-NLS-1$
 			@Override
 			public void run() {
 				starting = true;
 				saikuService.setRefreshDatabase( shouldRefreshDb  );
 				try {
-					saikuService.prepareDataForAnalysis();
+					saikuService.prepareDataForAnalysis(progressStartSaiku);
 				}catch ( SaikuExecutionException e1) {
 					JOptionPane.showMessageDialog(  frame , "<html>" + Messages.getString("CollectEarthWindow.29") + "<br>" +Messages.getString("CollectEarthWindow.40") + "<br/>" + e1.getMessage() + "</html>", Messages.getString("CollectEarthWindow.47"), JOptionPane.INFORMATION_MESSAGE); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$ //$NON-NLS-6$ //$NON-NLS-7$
 					logger.warn("The saiku server is not configured", e1); //$NON-NLS-1$ 
@@ -62,14 +64,14 @@ final class SaikuStarter {
 					if( progressStartSaiku != null ){
 						progressStartSaiku.close();
 					}
-						
 				}
 			}
 		};
 		
 		threadInitializingSaiku.start();
-		progressStartSaiku = new InfiniteProgressMonitor( frame, Messages.getString("SaikuStarter.1"), Messages.getString("SaikuStarter.2")); //$NON-NLS-1$ //$NON-NLS-2$
+
 		progressStartSaiku.show();
+		
 		
 		
 		if( progressStartSaiku.isUserCancelled() ){
